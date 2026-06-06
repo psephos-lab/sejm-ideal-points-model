@@ -26,6 +26,13 @@ Full conditionals (vectorized over all MPs / all votes at once):
                                      — exactly the CJR posterior formula
 """
 
+import os
+# Limit BLAS threads per process so parallel chains (one process each) don't
+# oversubscribe cores. 4 processes x 2 threads ~ 8 logical cores on M1.
+for _v in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS",
+           "VECLIB_MAXIMUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_v, "2")
+
 import numpy as np
 from scipy.special import ndtr, ndtri  # standard normal CDF and inverse CDF
 
@@ -55,6 +62,7 @@ def gibbs_ideal_point(
     sigma_beta: float = 2.0,
     sigma_alpha: float = 2.5,
     seed: int = 0,
+    standardize: bool = True,
     verbose: bool = True,
 ) -> dict:
     """
@@ -140,6 +148,22 @@ def gibbs_ideal_point(
         beta = mean_b + L11 * z1
         alpha = mean_a + L21 * z1 + L22 * z2
 
+        # 4) parameter expansion: pin x to mean 0 / SD 1 each sweep, absorbing the
+        # scale+location into (beta, alpha) so eta = beta*x - alpha is unchanged.
+        # Kills the weakly-identified scale/location random walk (Liu-Wu PX-DA;
+        # Imai-van Dyk for ideal points) -> chains agree on scale, mixing improves.
+        if standardize:
+            b = x.mean()
+            x = x - b
+            alpha = alpha - beta * b          # center: preserves eta
+            s = x.std()
+            x = x / s
+            beta = beta * s                   # scale: preserves eta (alpha unchanged)
+            # keep the anchor strictly positive (s>0 preserves sign; guard anyway)
+            if x[anchor_idx] < 0:
+                x = -x
+                beta = -beta
+
         # --- store ---
         if it >= num_warmup and (it - num_warmup) % thin == 0:
             k = (it - num_warmup) // thin
@@ -191,6 +215,45 @@ def run_multichain(
         "x": np.stack(xs),
         "beta": np.stack(betas),
         "alpha": np.stack(alphas),
+    }
+
+
+def _chain_worker(args: tuple) -> dict:
+    """Top-level worker (picklable) for one chain in a separate process."""
+    Y_raw, anchor_idx, seed, kw = args
+    return gibbs_ideal_point(Y_raw, anchor_idx, seed=seed, verbose=False, **kw)
+
+
+def run_multichain_parallel(
+    Y_raw: np.ndarray,
+    anchor_idx: int,
+    num_chains: int = 4,
+    num_warmup: int = 1000,
+    num_samples: int = 1000,
+    thin: int = 1,
+    base_seed: int = 0,
+    n_jobs: int | None = None,
+    **kwargs,
+) -> dict:
+    """
+    Run independent chains concurrently (one process per chain) and stack into
+    (chains, draws, ...) arrays. Exploits chain-level parallelism — the part of
+    MCMC that IS embarrassingly parallel (the within-chain sequence is not).
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    n_jobs = n_jobs or num_chains
+    kw = dict(num_warmup=num_warmup, num_samples=num_samples, thin=thin, **kwargs)
+    tasks = [(Y_raw, anchor_idx, base_seed + c, kw) for c in range(num_chains)]
+
+    print(f"Running {num_chains} chains across {n_jobs} processes...")
+    with ProcessPoolExecutor(max_workers=n_jobs) as ex:
+        results = list(ex.map(_chain_worker, tasks))
+
+    return {
+        "x": np.stack([r["x"] for r in results]),
+        "beta": np.stack([r["beta"] for r in results]),
+        "alpha": np.stack([r["alpha"] for r in results]),
     }
 
 

@@ -16,7 +16,7 @@ import pandas as pd
 import arviz as az
 
 from fetch_data import fetch_rollcall, filter_rollcall
-from gibbs import run_multichain
+from gibbs import run_multichain_parallel
 from model import find_anchor_idx
 from visualize import plot_ideal_points, plot_club_distributions, plot_trace
 
@@ -29,6 +29,7 @@ def main():
     p.add_argument("--warmup", type=int, default=1000)
     p.add_argument("--samples", type=int, default=2000)
     p.add_argument("--chains", type=int, default=4)
+    p.add_argument("--jobs", type=int, default=4, help="parallel processes (chains run concurrently)")
     p.add_argument("--thin", type=int, default=1)
     p.add_argument("--sigma-beta", type=float, default=2.0)
     p.add_argument("--sigma-alpha", type=float, default=2.5)
@@ -58,9 +59,10 @@ def main():
 
     # --- Sampling ---
     print(f"\n=== Gibbs ({args.warmup} warmup + {args.samples} samples × {args.chains} chains) ===")
-    out = run_multichain(
+    out = run_multichain_parallel(
         Y, anchor,
         num_chains=args.chains,
+        n_jobs=args.jobs,
         num_warmup=args.warmup,
         num_samples=args.samples,
         thin=args.thin,
