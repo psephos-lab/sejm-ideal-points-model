@@ -1,0 +1,6 @@
+jax-metal
+numpyro
+arviz
+matplotlib
+pandas
+requests

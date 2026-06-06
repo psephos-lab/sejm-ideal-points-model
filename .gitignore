@@ -1,0 +1,9 @@
+.venv/
+data/
+results/
+__pycache__/
+*.pyc
+*.pkl
+*.parquet
+*.png
+*.pdf
