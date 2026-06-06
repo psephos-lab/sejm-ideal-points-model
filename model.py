@@ -43,20 +43,36 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="arviz")
 
 
-def ideal_point_model(Y_obs: jnp.ndarray, mask: jnp.ndarray) -> None:
+def ideal_point_model(Y_obs: jnp.ndarray, mask: jnp.ndarray,
+                      anchor_idx: int | None = None) -> None:
     """
     Y_obs : (n_mps, n_votes) int32 — 1=YES, 0=NO (NaN positions zeroed, masked out)
     mask  : (n_mps, n_votes) bool  — True where vote was observed
+    anchor_idx : index of an MP whose ideal point is constrained positive, to break
+                 the reflection symmetry during sampling (fixes orientation across
+                 chains so R-hat is meaningful). Should be a clear right-wing MP.
+
+    Discrimination scale uses HalfNormal (light tail) NOT HalfCauchy: with perfect
+    party-line votes (latent separation), the heavy Cauchy tail lets sigma_beta
+    escape to infinity. The light tail acts as a soft ceiling, regularizing the
+    discrimination of perfectly-separating votes toward the bulk.
     """
     n_mps, n_votes = Y_obs.shape
 
-    # --- hyperpriors ---
-    sigma_beta = numpyro.sample("sigma_beta", dist.HalfCauchy(2.5))
-    sigma_alpha = numpyro.sample("sigma_alpha", dist.HalfCauchy(2.5))
+    # --- hyperpriors (light-tailed: prevents discrimination blow-up) ---
+    sigma_beta = numpyro.sample("sigma_beta", dist.HalfNormal(2.0))
+    sigma_alpha = numpyro.sample("sigma_alpha", dist.HalfNormal(2.5))
     mu_alpha = numpyro.sample("mu_alpha", dist.Normal(0.0, 1.0))
 
-    # --- ideal points ---
-    x = numpyro.sample("x", dist.Normal(jnp.zeros(n_mps), jnp.ones(n_mps)))
+    # --- ideal points (with optional sign anchor to break reflection) ---
+    if anchor_idx is None:
+        x = numpyro.sample("x", dist.Normal(jnp.zeros(n_mps), jnp.ones(n_mps)))
+    else:
+        x_anchor = numpyro.sample("x_anchor", dist.HalfNormal(1.0))  # > 0 always
+        x_others = numpyro.sample(
+            "x_others", dist.Normal(jnp.zeros(n_mps - 1), jnp.ones(n_mps - 1)))
+        x = numpyro.deterministic("x", jnp.concatenate(
+            [x_others[:anchor_idx], x_anchor[None], x_others[anchor_idx:]]))
 
     # --- vote parameters (non-centered) ---
     z_beta = numpyro.sample("z_beta", dist.Normal(jnp.zeros(n_votes), jnp.ones(n_votes)))
@@ -80,17 +96,31 @@ def prepare_arrays(Y_raw: np.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     return jnp.array(Y_int), jnp.array(mask)
 
 
+def find_anchor_idx(Y_raw: np.ndarray, mp_ids: list, mp_info,
+                    anchor_club: str = "PiS") -> int:
+    """Pick the row index of the anchor-club MP with the most observed votes."""
+    n_votes_per_mp = (~np.isnan(Y_raw)).sum(axis=1)
+    best_idx, best_count = 0, -1
+    for i, mid in enumerate(mp_ids):
+        club = mp_info.loc[mid, "club"] if mid in mp_info.index else ""
+        if club == anchor_club and n_votes_per_mp[i] > best_count:
+            best_idx, best_count = i, n_votes_per_mp[i]
+    return best_idx
+
+
 def run_nuts(
     Y_raw: np.ndarray,
     num_warmup: int = 1000,
     num_samples: int = 1000,
     num_chains: int = 4,
     seed: int = 42,
+    anchor_idx: int | None = None,
 ) -> object:
     """
     Run NUTS on the ideal point model.
 
     num_chains chains run in parallel via vmap on the same device.
+    anchor_idx breaks the reflection symmetry (see ideal_point_model).
     Returns an ArviZ InferenceData object.
     """
     Y_obs, mask = prepare_arrays(Y_raw)
@@ -106,7 +136,7 @@ def run_nuts(
     )
 
     rng_key = jax.random.PRNGKey(seed)
-    mcmc.run(rng_key, Y_obs=Y_obs, mask=mask)
+    mcmc.run(rng_key, Y_obs=Y_obs, mask=mask, anchor_idx=anchor_idx)
 
     idata = az.from_numpyro(mcmc)
     return idata

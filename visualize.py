@@ -1,21 +1,29 @@
-"""Visualization utilities for ideal point estimation results."""
+"""Visualization utilities for ideal point estimation results.
+
+All functions take plain NumPy posterior draws (decoupled from any MCMC backend):
+    x_flat   : (n_draws, n_mps)        flattened posterior draws of ideal points
+    x_chains : (n_chains, n_draws, n)  per-chain draws (for trace plots)
+"""
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import arviz as az
 
-# Club color palette (approximate party colors)
+# Club color palette (approximate party colors), matching actual API club names
 CLUB_COLORS = {
-    "PiS":     "#003087",  # dark blue
-    "KO":      "#F5821F",  # orange
-    "TD":      "#00A550",  # green
-    "Lewica":  "#E31E24",  # red
-    "Konfederacja": "#8B0000",  # dark red
-    "PL2050":  "#1DACD6",  # light blue (if separate from TD)
-    "PSL":     "#009A44",  # green (if separate from TD)
-    "Polska2050": "#1DACD6",
+    "PiS":             "#003087",  # dark blue
+    "KO":              "#F5821F",  # orange
+    "PSL-TD":          "#00A550",  # green (PSL / Third Way)
+    "Polska2050":      "#FACC15",  # yellow
+    "Polska2050-TD":   "#FACC15",  # yellow
+    "Lewica":          "#E31E24",  # red
+    "Razem":           "#951B81",  # magenta
+    "Konfederacja":    "#1A1A1A",  # near-black
+    "Konfederacja_KP": "#4A4A4A",  # dark gray
+    "Centrum":         "#1DACD6",  # light blue
+    "Demokracja":      "#00BFA5",  # teal
+    "niez.":           "#AAAAAA",  # gray (independents)
 }
 DEFAULT_COLOR = "#888888"
 
@@ -24,111 +32,96 @@ def _club_color(club: str) -> str:
     return CLUB_COLORS.get(club, DEFAULT_COLOR)
 
 
-def plot_ideal_points(
-    idata: object,
-    mp_ids: list,
-    mp_info: pd.DataFrame,
-    save_path: str | None = None,
-) -> None:
-    """
-    Strip plot of posterior mean ideal points, colored by club.
-    Error bars show 90% credible interval.
-    """
-    x_samples = idata.posterior["x"].values  # (chains, draws, n_mps)
-    x_flat = x_samples.reshape(-1, len(mp_ids))
+def _clubs_for(mp_ids: list, mp_info: pd.DataFrame) -> list:
+    return [mp_info.loc[mid, "club"] if mid in mp_info.index else "" for mid in mp_ids]
 
+
+def plot_ideal_points(x_flat, mp_ids, mp_info, save_path=None):
+    """Strip plot of posterior mean ideal points (±90% CI), colored by club."""
     x_mean = x_flat.mean(axis=0)
     x_lo = np.percentile(x_flat, 5, axis=0)
     x_hi = np.percentile(x_flat, 95, axis=0)
 
-    clubs = [mp_info.loc[mid, "club"] if mid in mp_info.index else "" for mid in mp_ids]
+    clubs = _clubs_for(mp_ids, mp_info)
     colors = [_club_color(c) for c in clubs]
-
     order = np.argsort(x_mean)
 
-    fig, ax = plt.subplots(figsize=(14, 5))
-
+    fig, ax = plt.subplots(figsize=(14, 6))
     for rank, idx in enumerate(order):
         ax.plot([x_lo[idx], x_hi[idx]], [rank, rank],
-                color=colors[idx], alpha=0.3, linewidth=0.6)
-        ax.scatter(x_mean[idx], rank, color=colors[idx], s=8, zorder=3)
+                color=colors[idx], alpha=0.35, linewidth=0.6)
+        ax.scatter(x_mean[idx], rank, color=colors[idx], s=9, zorder=3)
 
-    # Legend
-    seen_clubs = sorted(set(clubs) - {""})
-    patches = [mpatches.Patch(color=_club_color(c), label=c) for c in seen_clubs]
-    ax.legend(handles=patches, loc="upper left", fontsize=8, framealpha=0.9)
+    seen = sorted(set(clubs) - {""})
+    patches = [mpatches.Patch(color=_club_color(c), label=c) for c in seen]
+    ax.legend(handles=patches, loc="upper left", fontsize=8, framealpha=0.9, ncol=2)
 
-    ax.set_xlabel("Ideal point (positive = right)", fontsize=11)
+    ax.set_xlabel("Punkt idealny (dodatni = prawica)", fontsize=11)
     ax.set_yticks([])
-    ax.set_title("Ideal points — Sejm term10\n(posterior mean ± 90% CI)", fontsize=12)
+    ax.set_title("Punkty idealne posłów — Sejm X kadencji\n(średnia a posteriori ± 90% CI)", fontsize=12)
     ax.axvline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
-
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved: {save_path}")
+        plt.savefig(save_path, dpi=150); print(f"Saved: {save_path}")
     else:
         plt.show()
     plt.close()
 
 
-def plot_club_distributions(
-    idata: object,
-    mp_ids: list,
-    mp_info: pd.DataFrame,
-    save_path: str | None = None,
-) -> None:
-    """Violin plot of ideal point distributions per club."""
-    x_samples = idata.posterior["x"].values.reshape(-1, len(mp_ids))
-    clubs = [mp_info.loc[mid, "club"] if mid in mp_info.index else "?" for mid in mp_ids]
+def plot_club_distributions(x_flat, mp_ids, mp_info, save_path=None):
+    """Violin plot of per-MP posterior means grouped by club."""
+    x_mean = x_flat.mean(axis=0)
+    clubs = _clubs_for(mp_ids, mp_info)
 
     club_data = {}
     for i, club in enumerate(clubs):
-        club_data.setdefault(club, []).append(x_samples[:, i].mean())
+        club_data.setdefault(club or "?", []).append(x_mean[i])
 
-    # Sort clubs by median ideal point
     club_order = sorted(club_data, key=lambda c: np.median(club_data[c]))
-    medians = [np.median(club_data[c]) for c in club_order]
     means_list = [club_data[c] for c in club_order]
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(11, 5))
     parts = ax.violinplot(means_list, positions=range(len(club_order)),
                           showmedians=True, widths=0.7)
-
-    for i, (body, club) in enumerate(zip(parts["bodies"], club_order)):
-        body.set_facecolor(_club_color(club))
-        body.set_alpha(0.7)
+    for body, club in zip(parts["bodies"], club_order):
+        body.set_facecolor(_club_color(club)); body.set_alpha(0.7)
 
     ax.set_xticks(range(len(club_order)))
-    ax.set_xticklabels(club_order, fontsize=10)
+    ax.set_xticklabels(club_order, fontsize=9, rotation=30, ha="right")
     ax.axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
-    ax.set_ylabel("Posterior mean ideal point")
-    ax.set_title("Ideal point distribution by club — Sejm term10")
-
+    ax.set_ylabel("Punkt idealny (średnia a posteriori)")
+    ax.set_title("Rozkład punktów idealnych wg klubu — Sejm X kadencji")
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved: {save_path}")
+        plt.savefig(save_path, dpi=150); print(f"Saved: {save_path}")
     else:
         plt.show()
     plt.close()
 
 
-def plot_trace(
-    idata: object,
-    save_path: str | None = None,
-) -> None:
-    """Trace plots for hyperparameters."""
-    axes = az.plot_trace(
-        idata,
-        var_names=["sigma_beta", "sigma_alpha", "mu_alpha"],
-        compact=True,
-    )
-    plt.suptitle("MCMC trace — hyperparameters", y=1.01)
+def plot_trace(x_chains, mp_ids, mp_info, save_path=None, n_show=4):
+    """Trace plot of a few representative MPs' ideal points across chains."""
+    n_chains, n_draws, n = x_chains.shape
+    x_mean = x_chains.reshape(-1, n).mean(0)
+    # pick MPs spanning the axis: most-left, most-right, and two in between
+    order = np.argsort(x_mean)
+    picks = [order[0], order[n // 3], order[2 * n // 3], order[-1]][:n_show]
+
+    fig, axes = plt.subplots(len(picks), 1, figsize=(10, 2 * len(picks)), sharex=True)
+    if len(picks) == 1:
+        axes = [axes]
+    for ax, idx in zip(axes, picks):
+        mid = mp_ids[idx]
+        name = f"{mp_info.loc[mid,'last_name']} ({mp_info.loc[mid,'club']})" if mid in mp_info.index else str(mid)
+        for c in range(n_chains):
+            ax.plot(x_chains[c, :, idx], linewidth=0.6, alpha=0.8, label=f"chain {c+1}")
+        ax.set_ylabel(f"x\n{name}", fontsize=8)
+        ax.legend(fontsize=7, loc="upper right")
+    axes[-1].set_xlabel("Iteracja (po burn-in)")
+    fig.suptitle("Trace — wybrane punkty idealne (mieszanie łańcuchów)", y=1.0)
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=120, bbox_inches="tight")
-        print(f"Saved: {save_path}")
+        plt.savefig(save_path, dpi=120, bbox_inches="tight"); print(f"Saved: {save_path}")
     else:
         plt.show()
     plt.close()
