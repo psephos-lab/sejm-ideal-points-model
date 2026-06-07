@@ -143,8 +143,18 @@ footer a { color: var(--accent); }
 .hist-controls #hist-search { flex: 1 1 220px; padding: .45rem .7rem; border: 1px solid var(--line);
   border-radius: 8px; font-size: .95rem; }
 .hist-list { overflow-y: auto; flex: 1; border-top: 1px solid var(--line); }
+.hist-item { border-bottom: 1px solid #eee; }
 .hist-row { display: grid; grid-template-columns: 84px 128px 1fr; gap: .6rem;
-  padding: .55rem .2rem; border-bottom: 1px solid #eee; align-items: start; }
+  padding: .55rem .2rem; align-items: start; }
+.bd-toggle { border: none; background: none; color: var(--accent); cursor: pointer;
+  font-size: .78rem; padding: 0; }
+.bd-toggle:hover { text-decoration: underline; }
+.bd-wrap svg { width: 100%; display: block; margin: .2rem 0; background: #fbfbfb; border-radius: 6px; }
+.bd-cap { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; font-size: .76rem;
+  color: var(--muted); padding: 0 .2rem .6rem; }
+.bd-cap .k { display: inline-flex; align-items: center; gap: .3rem; }
+.bd-cap .k i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.bd-cap .coh { margin-left: auto; font-weight: 600; color: #333; }
 .hr-date { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
 .hr-votes { display: grid; grid-template-columns: auto 1fr; gap: .15rem .3rem; align-items: center; }
 .hr-lab { font-size: .66rem; color: var(--muted); text-transform: uppercase; }

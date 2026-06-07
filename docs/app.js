@@ -374,7 +374,90 @@ function renderHistory(mp) {
   search.oninput = () => { limit = 120; update(); };
   contested.onchange = () => { limit = 120; update(); };
   modal.querySelector("#hist-more-btn").onclick = () => { limit += 200; update(); };
+  modal.querySelector("#hist-list").addEventListener("click", onBreakdownClick);
   update();
+}
+
+// expand/collapse the per-vote ideological breakdown (Voteview-style)
+function onBreakdownClick(e) {
+  const btn = e.target.closest(".bd-toggle");
+  if (!btn) return;
+  const wrap = btn.closest(".hist-item").querySelector(".bd-wrap");
+  if (wrap.childElementCount) {
+    wrap.innerHTML = ""; btn.textContent = "▾ rozkład głosów";
+  } else {
+    renderBreakdown(+btn.dataset.i, wrap); btn.textContent = "▴ ukryj rozkład";
+  }
+}
+
+const VOTE_COL = { Y: "#1a9850", N: "#d73027" };
+const voteName = (c) => (c === "Y" ? "Za" : c === "N" ? "Przeciw" : "nieob./wstrzym.");
+
+function cuttingPoint(decided) {
+  // 1-D threshold on ideal point that best separates Za (y=1) from Przeciw (y=0)
+  if (decided.length < 2) return null;
+  const mY = d3.mean(decided.filter((d) => d.y === 1), (d) => d.x);
+  const mN = d3.mean(decided.filter((d) => d.y === 0), (d) => d.x);
+  const yRight = (mY ?? 0) >= (mN ?? 0);            // Za tends to higher x?
+  const xs = decided.map((d) => d.x).sort((a, b) => a - b);
+  let best = 0, bestErr = Infinity;
+  for (let i = 0; i <= xs.length; i++) {
+    const t = i === 0 ? xs[0] - 1 : i === xs.length ? xs[xs.length - 1] + 1 : (xs[i - 1] + xs[i]) / 2;
+    let err = 0;
+    for (const d of decided) {
+      const predYea = yRight ? d.x >= t : d.x < t;
+      if (predYea !== (d.y === 1)) err++;
+    }
+    if (err < bestErr) { bestErr = err; best = t; }
+  }
+  return { t: best, coherence: 1 - bestErr / decided.length };
+}
+
+function renderBreakdown(vi, wrap) {
+  const W = wrap.clientWidth || 760, H = 150;
+  const m = { top: 10, right: 12, bottom: 22, left: 12 }, R2 = 3.2;
+  const voters = DATA.mps.map((mp) => ({ mp, v: (MPVOTES[String(mp.id)] || "")[vi] || "." }));
+  const x = d3.scaleLinear().domain([XEXT[0] - 0.1, XEXT[1] + 0.1]).range([m.left, W - m.right]);
+
+  const nodes = voters.map((o) => ({ o }));
+  d3.forceSimulation(nodes)
+    .force("x", d3.forceX((n) => x(n.o.mp.x)).strength(1))
+    .force("y", d3.forceY((H - m.top - m.bottom) / 2 + m.top).strength(0.06))
+    .force("collide", d3.forceCollide(R2 + 0.5))
+    .stop().tick(180);
+  const yMin = m.top + R2, yMax = H - m.bottom - R2;
+  nodes.forEach((n) => { n.y = Math.max(yMin, Math.min(yMax, n.y)); });
+
+  const za = voters.filter((o) => o.v === "Y").length;
+  const pr = voters.filter((o) => o.v === "N").length;
+  const ab = voters.length - za - pr;
+  const decided = voters.filter((o) => o.v === "Y" || o.v === "N").map((o) => ({ x: o.mp.x, y: o.v === "Y" ? 1 : 0 }));
+  const cut = cuttingPoint(decided);
+
+  const svg = d3.select(wrap).append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("height", H);
+  svg.append("line").attr("x1", m.left).attr("x2", W - m.right)
+    .attr("y1", H - m.bottom).attr("y2", H - m.bottom).attr("stroke", "#ddd");
+  svg.append("line").attr("x1", x(0)).attr("x2", x(0)).attr("y1", m.top).attr("y2", H - m.bottom).attr("stroke", "#eee");
+  if (cut) svg.append("line").attr("x1", x(cut.t)).attr("x2", x(cut.t)).attr("y1", m.top - 2).attr("y2", H - m.bottom)
+    .attr("stroke", "#333").attr("stroke-dasharray", "4 3").attr("stroke-width", 1.2);
+
+  svg.append("g").selectAll("circle").data(nodes).join("circle")
+    .attr("cx", (n) => n.x).attr("cy", (n) => n.y).attr("r", R2)
+    .attr("fill", (n) => VOTE_COL[n.o.v] || "#cfcfcf").attr("stroke", "#fff").attr("stroke-width", 0.4)
+    .append("title").text((n) => `${n.o.mp.name} (${n.o.mp.club}): ${voteName(n.o.v)}`);
+
+  svg.append("text").attr("x", m.left).attr("y", H - 6).attr("class", "axis-label").text("lewica");
+  svg.append("text").attr("x", W - m.right).attr("y", H - 6).attr("text-anchor", "end")
+    .attr("class", "axis-label").text("prawica");
+
+  const cap = document.createElement("div");
+  cap.className = "bd-cap";
+  cap.innerHTML =
+    `<span class="k"><i style="background:#1a9850"></i>za ${za}</span>` +
+    `<span class="k"><i style="background:#d73027"></i>przeciw ${pr}</span>` +
+    `<span class="k"><i style="background:#cfcfcf"></i>nieob./wstrzym. ${ab}</span>` +
+    (cut ? `<span class="coh">linia podziału: x=${cut.t.toFixed(2)} · ${Math.round(cut.coherence * 100)}% zgodne z osią</span>` : "");
+  wrap.appendChild(cap);
 }
 
 function partyBadge(pctZa) {
@@ -387,19 +470,23 @@ function partyBadge(pctZa) {
 
 function rowHtml(v, mpCode, mpClub) {
   const pdf = `https://api.sejm.gov.pl/sejm/term10/votings/${v.s}/${v.v}/pdf`;
-  return `<div class="hist-row">
-    <div class="hr-date">${v.d}</div>
-    <div class="hr-votes">
-      <span class="hr-lab">poseł</span>${voteBadge(mpCode)}
-      <span class="hr-lab">klub</span>${partyBadge(v.m[mpClub])}
+  return `<div class="hist-item">
+    <div class="hist-row">
+      <div class="hr-date">${v.d}</div>
+      <div class="hr-votes">
+        <span class="hr-lab">poseł</span>${voteBadge(mpCode)}
+        <span class="hr-lab">klub</span>${partyBadge(v.m[mpClub])}
+      </div>
+      <div class="hr-main">
+        <div class="hr-title">${esc(v.t)}</div>
+        <div class="hr-topic">${esc(v.o)}</div>
+        <div class="hr-result">Wynik: <b class="za">${v.y}</b> za · <b class="pr">${v.n}</b> przeciw · ${v.a} wstrzym.
+          ${v.c ? "" : '<span class="tag">jednomyślne</span>'}
+          · <a href="${pdf}" target="_blank" rel="noopener">PDF ↗</a>
+          · <button class="bd-toggle" data-i="${v.i}">▾ rozkład głosów</button></div>
+      </div>
     </div>
-    <div class="hr-main">
-      <div class="hr-title">${esc(v.t)}</div>
-      <div class="hr-topic">${esc(v.o)}</div>
-      <div class="hr-result">Wynik: <b class="za">${v.y}</b> za · <b class="pr">${v.n}</b> przeciw · ${v.a} wstrzym.
-        ${v.c ? "" : '<span class="tag">jednomyślne</span>'}
-        · <a href="${pdf}" target="_blank" rel="noopener">PDF ↗</a></div>
-    </div>
+    <div class="bd-wrap"></div>
   </div>`;
 }
 
