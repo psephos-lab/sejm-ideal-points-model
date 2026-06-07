@@ -19,8 +19,11 @@ def main():
     clubs = np.array([mp_info.loc[mid, "club"] if mid in mp_info.index else "?" for mid in mp_ids])
 
     d = np.load("results/draws_2d.npz", allow_pickle=True)
-    beta = d["beta"]                       # (C, draws, m, D)
-    b_mean = beta.reshape(-1, beta.shape[2], beta.shape[3]).mean(0)   # (m, D)
+    if "beta_mean" in d:
+        b_mean = d["beta_mean"]            # (m, D)
+    else:
+        beta = d["beta"]
+        b_mean = beta.reshape(-1, beta.shape[2], beta.shape[3]).mean(0)
 
     b1, b2 = b_mean[:, 0], b_mean[:, 1]
     mag = np.hypot(b1, b2)

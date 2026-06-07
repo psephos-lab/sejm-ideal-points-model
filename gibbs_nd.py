@@ -149,6 +149,27 @@ def align_draws(draws_x, draws_b, n_iter=3):
     return Xa, Ba
 
 
+def target_rotate(draws_x, draws_b, x_target):
+    """
+    Rotate all draws by a single orthogonal matrix so that dimension 1 aligns
+    with x_target (e.g. the 1-D ideal point solution). Makes dim1 comparable to
+    the 1-D model and leaves dim2.. as the orthogonal complement. Far more
+    interpretable than an arbitrary Procrustes-to-mean basis.
+    """
+    xm = draws_x.mean(0)                       # (n, D)
+    D = xm.shape[1]
+    r0 = xm.T @ x_target
+    r0 = r0 / np.linalg.norm(r0)
+    if D == 2:
+        R = np.column_stack([r0, [-r0[1], r0[0]]])
+    else:                                       # complete an orthonormal basis
+        M = np.column_stack([r0, np.eye(D)[:, 1:]])
+        R, _ = np.linalg.qr(M)
+        if R[:, 0] @ r0 < 0:
+            R[:, 0] *= -1
+    return draws_x @ R, draws_b @ R
+
+
 def fix_signs(draws_x, draws_b, anchor_idx, dim2_ref_idx=None):
     """
     Fix reflection per dimension by convention:

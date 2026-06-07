@@ -11,6 +11,7 @@ then:
 import os
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
 import argparse
+import time
 import warnings
 warnings.filterwarnings("ignore")
 import numpy as np
@@ -20,7 +21,7 @@ import matplotlib.patches as mpatches
 import arviz as az
 
 from fetch_data import fetch_rollcall, filter_rollcall
-from gibbs_nd import run_multichain_nd, align_draws, fix_signs
+from gibbs_nd import run_multichain_nd, align_draws, fix_signs, target_rotate
 from model import find_anchor_idx
 from visualize import CLUB_COLORS, DEFAULT_COLOR
 
@@ -43,15 +44,25 @@ def main():
     anchor = find_anchor_idx(Y, mp_ids, mp_info)
     print(f"Matrix {n}x{m}; anchor = {mp_info.loc[mp_ids[anchor],'last_name']} (PiS)")
 
+    t0 = time.time()
     out = run_multichain_nd(Y, D=2, num_chains=args.chains, n_jobs=args.jobs,
                             num_warmup=args.warmup, num_samples=args.samples, thin=args.thin)
     C, Dr, _, D = out["x"].shape
-    print(f"draws: {C} chains x {Dr} = {C*Dr} total")
+    sweeps = args.warmup + args.samples * args.thin
+    print(f"draws: {C} chains x {Dr} = {C*Dr} total ({sweeps} sweeps/chain)")
+    print(f"[TIMING] wall = {time.time()-t0:.0f}s")
 
-    # --- align across all draws, then fix signs ---
+    # --- align across all draws, target-rotate dim1 to the 1D axis, fix signs ---
     flatX = out["x"].reshape(C * Dr, n, D)
     flatB = out["beta"].reshape(C * Dr, m, D)
     flatX, flatB = align_draws(flatX, flatB, n_iter=4)
+    try:
+        x1d = np.load(os.path.join(RESULTS, "draws.npz"), allow_pickle=True)["x"]
+        x1d = x1d.reshape(-1, n).mean(0)
+        flatX, flatB = target_rotate(flatX, flatB, x1d)
+        print("Applied target rotation: dim1 aligned to 1D solution")
+    except FileNotFoundError:
+        print("No 1D solution (results/draws.npz); keeping Procrustes orientation")
     flatX, flatB = fix_signs(flatX, flatB, anchor)
 
     # --- per-dim convergence (R-hat on aligned draws) ---
@@ -93,8 +104,9 @@ def main():
         "dim1": x_mean[:, 0], "dim2": x_mean[:, 1],
     })
     est.to_csv(os.path.join(RESULTS, "ideal_points_2d.csv"), index=False)
+    # save x draws (for CI/R-hat) + beta MEAN only (full beta draws would be GBs)
     np.savez_compressed(os.path.join(RESULTS, "draws_2d.npz"),
-                        x=Xc, beta=flatB.reshape(C, Dr, m, D), mp_ids=np.array(mp_ids))
+                        x=Xc, beta_mean=b_mean, mp_ids=np.array(mp_ids))
 
     fig, ax = plt.subplots(figsize=(11, 9))
     for c in sorted(set(clubs)):
