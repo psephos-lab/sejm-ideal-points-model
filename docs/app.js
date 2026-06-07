@@ -14,6 +14,9 @@ const norm = (s) => s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, 
 let DATA = null;
 let activeClub = null;                         // club isolation filter
 let showCI = false;
+let selected = null;                           // MP shown in the profile panel
+let XEXT = null;                               // global ideal-point extent
+let CLUB_MEAN = {};                            // club -> mean position
 
 const tooltip = document.getElementById("tooltip");
 
@@ -21,6 +24,8 @@ fetch("ideal_points.json")
   .then((r) => r.json())
   .then((data) => {
     DATA = data;
+    XEXT = d3.extent(data.mps, (d) => d.x);
+    data.clubs.forEach((c) => { CLUB_MEAN[c.club] = c.mean; });
     document.getElementById("subtitle").textContent =
       `${data.meta.term} · ${data.meta.n_mps} posłów · ${data.meta.n_votes} głosowań`;
     document.getElementById("meta-line").textContent =
@@ -107,7 +112,9 @@ function render() {
     .attr("class", "dot-mp").attr("r", R)
     .attr("cx", (d) => d.x).attr("cy", (d) => d.y)
     .attr("fill", (d) => color(d.club))
-    .on("mousemove", showTip).on("mouseleave", hideTip);
+    .classed("selected", (d) => selected && d.id === selected.id)
+    .on("mousemove", showTip).on("mouseleave", hideTip)
+    .on("click", (e, d) => openProfile(d));
 
   applyFilter();
 }
@@ -177,9 +184,93 @@ function renderClubs(data) {
     .attr("fill", (d) => color(d.club));
 }
 
+// ---------- MP profile panel ----------
+const fmtPct = (v) => (v == null ? "—" : Math.round(v * 100) + "%");
+
+function openProfile(mp) {
+  selected = mp;
+  d3.selectAll(".dot-mp").classed("selected", (d) => d.id === mp.id);
+
+  const neighbors = DATA.mps
+    .filter((d) => d.id !== mp.id)
+    .map((d) => ({ ...d, dist: Math.abs(d.x - mp.x) }))
+    .sort((a, b) => a.dist - b.dist).slice(0, 3);
+
+  const rhatOk = mp.rhat < 1.05;
+  const el = document.getElementById("profile");
+  el.innerHTML = `
+    <button class="close" aria-label="Zamknij">×</button>
+    <h2>${mp.name}</h2>
+    <div class="club-chip"><span class="dot" style="background:${color(mp.club)}"></span>${mp.club}</div>
+    <div class="big-pos">${mp.x.toFixed(2)}
+      <span class="ci">90% CI: ${mp.lo.toFixed(2)} … ${mp.hi.toFixed(2)}</span></div>
+    <svg id="mini-axis" role="img" aria-label="Pozycja na osi"></svg>
+    <dl class="stats">
+      <dt>Ranga (lewica→prawica)</dt><dd>#${mp.rank} / ${DATA.meta.n_mps}</dd>
+      <dt>W klubie</dt><dd>#${mp.club_rank} / ${mp.club_size}</dd>
+      <dt>Frekwencja</dt><dd>${fmtPct(mp.turnout)} <span class="muted">(${mp.votes}/${DATA.meta.n_votes})</span></dd>
+      <dt>Lojalność klubowa</dt><dd>${fmtPct(mp.loyalty)}</dd>
+      <dt>Zbieżność (R̂)</dt><dd>${mp.rhat.toFixed(3)} <span class="${rhatOk ? "ok" : "warn"}">${rhatOk ? "✓" : "⚠"}</span></dd>
+    </dl>
+    <h3>Najbliżsi ideologicznie</h3>
+    <ul class="neighbors">
+      ${neighbors.map((d) => `<li data-id="${d.id}"><span class="dot" style="background:${color(d.club)}"></span><span class="nm">${d.name}</span><span class="nx">${d.x.toFixed(2)}</span></li>`).join("")}
+    </ul>`;
+
+  el.querySelector(".close").onclick = closeProfile;
+  el.querySelectorAll(".neighbors li").forEach((li) => {
+    li.onclick = () => {
+      const m = DATA.mps.find((d) => d.id === +li.dataset.id);
+      if (m) openProfile(m);
+    };
+  });
+
+  el.hidden = false; el.classList.add("open");
+  document.getElementById("backdrop").hidden = false;
+  renderMiniAxis(mp);
+}
+
+function closeProfile() {
+  selected = null;
+  d3.selectAll(".dot-mp").classed("selected", false);
+  const el = document.getElementById("profile");
+  el.classList.remove("open"); el.hidden = true;
+  document.getElementById("backdrop").hidden = true;
+}
+
+function renderMiniAxis(mp) {
+  const svg = d3.select("#mini-axis");
+  svg.selectAll("*").remove();
+  const width = document.getElementById("profile").clientWidth - 40;
+  const height = 56, yc = 28;
+  svg.attr("viewBox", `0 0 ${width} ${height}`).attr("height", height);
+  const x = d3.scaleLinear().domain([XEXT[0] - 0.1, XEXT[1] + 0.1]).range([10, width - 10]);
+
+  svg.append("line").attr("x1", 10).attr("x2", width - 10).attr("y1", yc).attr("y2", yc).attr("stroke", "#ccc");
+  svg.append("line").attr("x1", x(0)).attr("x2", x(0)).attr("y1", 6).attr("y2", yc + 6)
+    .attr("stroke", "#bbb").attr("stroke-dasharray", "3 2");
+  svg.append("g").selectAll("circle").data(DATA.mps).join("circle")
+    .attr("cx", (d) => x(d.x)).attr("cy", yc).attr("r", 1.5).attr("fill", "#d0d0d0");
+  const cm = CLUB_MEAN[mp.club];
+  svg.append("line").attr("x1", x(cm)).attr("x2", x(cm)).attr("y1", yc - 9).attr("y2", yc + 9)
+    .attr("stroke", color(mp.club)).attr("stroke-width", 2).attr("stroke-opacity", .6);
+  svg.append("line").attr("x1", x(mp.lo)).attr("x2", x(mp.hi)).attr("y1", yc).attr("y2", yc)
+    .attr("stroke", color(mp.club)).attr("stroke-width", 2).attr("stroke-opacity", .5);
+  svg.append("circle").attr("cx", x(mp.x)).attr("cy", yc).attr("r", 5)
+    .attr("fill", color(mp.club)).attr("stroke", "#000").attr("stroke-width", 1);
+  svg.append("text").attr("x", 10).attr("y", height - 3).attr("class", "axis-label").text("lewica");
+  svg.append("text").attr("x", width - 10).attr("y", height - 3).attr("text-anchor", "end")
+    .attr("class", "axis-label").text("prawica");
+}
+
+document.getElementById("backdrop").addEventListener("click", closeProfile);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeProfile(); });
+
 // ---------- responsive ----------
 let rt;
 window.addEventListener("resize", () => {
   clearTimeout(rt);
-  rt = setTimeout(() => { if (DATA) { render(); renderClubs(DATA); } }, 200);
+  rt = setTimeout(() => {
+    if (DATA) { render(); renderClubs(DATA); if (selected) renderMiniAxis(selected); }
+  }, 200);
 });
