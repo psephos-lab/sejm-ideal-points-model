@@ -17,6 +17,8 @@ let showCI = false;
 let selected = null;                           // MP shown in the profile panel
 let XEXT = null;                               // global ideal-point extent
 let CLUB_MEAN = {};                            // club -> mean position
+let VOTES = null;                              // lazy-loaded votes.json (metadata)
+let MPVOTES = null;                            // lazy-loaded mp_votes.json (per-MP codes)
 
 const tooltip = document.getElementById("tooltip");
 
@@ -212,12 +214,14 @@ function openProfile(mp) {
       <dt>Lojalność klubowa</dt><dd>${fmtPct(mp.loyalty)}</dd>
       <dt>Zbieżność (R̂)</dt><dd>${mp.rhat.toFixed(3)} <span class="${rhatOk ? "ok" : "warn"}">${rhatOk ? "✓" : "⚠"}</span></dd>
     </dl>
+    <button class="hist-btn" id="hist-open">📜 Historia głosowań →</button>
     <h3>Najbliżsi ideologicznie</h3>
     <ul class="neighbors">
       ${neighbors.map((d) => `<li data-id="${d.id}"><span class="dot" style="background:${color(d.club)}"></span><span class="nm">${d.name}</span><span class="nx">${d.x.toFixed(2)}</span></li>`).join("")}
     </ul>`;
 
   el.querySelector(".close").onclick = closeProfile;
+  el.querySelector("#hist-open").onclick = () => openHistory(mp);
   el.querySelectorAll(".neighbors li").forEach((li) => {
     li.onclick = () => {
       const m = DATA.mps.find((d) => d.id === +li.dataset.id);
@@ -263,8 +267,110 @@ function renderMiniAxis(mp) {
     .attr("class", "axis-label").text("prawica");
 }
 
+// ---------- voting history modal ----------
+const esc = (s) => (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function voteBadge(code) {
+  if (code === "Y") return '<span class="badge za">Za</span>';
+  if (code === "N") return '<span class="badge pr">Przeciw</span>';
+  if (code === "A") return '<span class="badge ab">Wstrzymał</span>';
+  return '<span class="badge none" title="nieobecny lub wstrzymał się">—</span>';
+}
+
+async function openHistory(mp) {
+  const modal = document.getElementById("history");
+  modal.hidden = false;
+  modal.innerHTML = `<div class="modal-card"><div class="loading">Ładowanie historii…</div></div>`;
+  if (!VOTES) {
+    try {
+      const [v, mv] = await Promise.all([
+        fetch("votes.json").then((r) => r.json()),
+        fetch("mp_votes.json").then((r) => r.json()),
+      ]);
+      VOTES = v.votes; MPVOTES = mv;
+    } catch (e) {
+      modal.innerHTML = `<div class="modal-card"><button class="close">×</button><p>Błąd ładowania historii.</p></div>`;
+      modal.querySelector(".close").onclick = closeHistory;
+      return;
+    }
+  }
+  renderHistory(mp);
+}
+
+function closeHistory() {
+  const m = document.getElementById("history");
+  m.hidden = true; m.innerHTML = "";
+}
+
+function renderHistory(mp) {
+  const code = (MPVOTES && MPVOTES[String(mp.id)]) || "";
+  const modal = document.getElementById("history");
+  modal.innerHTML = `
+    <div class="modal-card">
+      <button class="close" aria-label="Zamknij">×</button>
+      <h2>Historia głosowań — ${esc(mp.name)}
+        <span class="club-chip"><span class="dot" style="background:${color(mp.club)}"></span>${mp.club}</span></h2>
+      <div class="hist-controls">
+        <input id="hist-search" type="search" placeholder="Szukaj w tytule / opisie…" autocomplete="off" />
+        <label class="toggle"><input type="checkbox" id="hist-contested" /> tylko sporne</label>
+        <span id="hist-count" class="muted"></span>
+      </div>
+      <div id="hist-list" class="hist-list"></div>
+      <div class="hist-more"><button id="hist-more-btn">pokaż więcej</button></div>`;
+  modal.querySelector(".close").onclick = closeHistory;
+  modal.onclick = (e) => { if (e.target === modal) closeHistory(); };
+
+  const search = modal.querySelector("#hist-search");
+  const contested = modal.querySelector("#hist-contested");
+  let limit = 120;
+
+  function update() {
+    const q = norm(search.value.trim());
+    const onlyC = contested.checked;
+    const filtered = [];
+    for (let i = VOTES.length - 1; i >= 0; i--) {       // newest first
+      const v = VOTES[i];
+      if (onlyC && !v.c) continue;
+      if (q && !(norm(v.t).includes(q) || norm(v.o).includes(q))) continue;
+      filtered.push(v);
+    }
+    modal.querySelector("#hist-count").textContent = `${filtered.length} głosowań`;
+    modal.querySelector("#hist-list").innerHTML =
+      filtered.slice(0, limit).map((v) => rowHtml(v, code[v.i], mp.club)).join("");
+    modal.querySelector(".hist-more").style.display = filtered.length > limit ? "block" : "none";
+  }
+  search.oninput = () => { limit = 120; update(); };
+  contested.onchange = () => { limit = 120; update(); };
+  modal.querySelector("#hist-more-btn").onclick = () => { limit += 200; update(); };
+  update();
+}
+
+function rowHtml(v, mpCode, mpClub) {
+  const partyMaj = v.m[mpClub];
+  const pdf = `https://api.sejm.gov.pl/sejm/term10/votings/${v.s}/${v.v}/pdf`;
+  return `<div class="hist-row">
+    <div class="hr-date">${v.d}</div>
+    <div class="hr-votes">
+      <span class="hr-lab">poseł</span>${voteBadge(mpCode)}
+      <span class="hr-lab">klub</span>${partyMaj ? voteBadge(partyMaj) : '<span class="badge none">—</span>'}
+    </div>
+    <div class="hr-main">
+      <div class="hr-title">${esc(v.t)}</div>
+      <div class="hr-topic">${esc(v.o)}</div>
+      <div class="hr-result">Wynik: <b class="za">${v.y}</b> za · <b class="pr">${v.n}</b> przeciw · ${v.a} wstrzym.
+        ${v.c ? "" : '<span class="tag">jednomyślne</span>'}
+        · <a href="${pdf}" target="_blank" rel="noopener">PDF ↗</a></div>
+    </div>
+  </div>`;
+}
+
+// ---------- close handlers (history on top of profile) ----------
 document.getElementById("backdrop").addEventListener("click", closeProfile);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeProfile(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!document.getElementById("history").hidden) closeHistory();
+  else closeProfile();
+});
 
 // ---------- responsive ----------
 let rt;
