@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Punkty idealne posłów — Sejm X kadencji</title>
+  <meta name="description" content="Bayesowska estymacja pozycji ideologicznych (lewica–prawica) posłów Sejmu RP na podstawie głosowań imiennych." />
+  <link rel="preconnect" href="https://d3js.org" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Punkty idealne posłów Sejmu</h1>
+    <p class="subtitle" id="subtitle">X kadencja · ładowanie…</p>
+  </header>
+
+  <main>
+    <section class="controls">
+      <input id="search" type="search" placeholder="Szukaj posła (np. Tusk)…" autocomplete="off" />
+      <label class="toggle"><input type="checkbox" id="ci-toggle" /> przedziały ufności (90%)</label>
+      <button id="reset" class="reset">reset</button>
+    </section>
+
+    <section id="legend" class="legend" aria-label="Kluby"></section>
+
+    <section class="chart-wrap">
+      <svg id="chart" role="img" aria-label="Rozkład punktów idealnych posłów"></svg>
+      <div id="tooltip" class="tooltip" hidden></div>
+    </section>
+
+    <section class="chart-wrap">
+      <h2>Średnia pozycja klubu</h2>
+      <svg id="clubs" role="img" aria-label="Średnie pozycje klubów"></svg>
+    </section>
+
+    <section class="howto">
+      <h2>Jak to czytać</h2>
+      <p>
+        Każdy punkt to jeden poseł. Pozioma oś to <strong>główny wymiar głosowań</strong>
+        odtworzony z samych głosowań imiennych — bez żadnych etykiet ideologicznych.
+        Układa się on jak oś <strong>lewica ↔ prawica</strong> (i zarazem rząd ↔ opozycja):
+        wartości ujemne to lewa strona, dodatnie — prawa.
+      </p>
+      <p>
+        Pozycje wyłaniają się z wzorców „za/przeciw": posłowie głosujący podobnie trafiają
+        blisko siebie. Skala jest standaryzowana (odchylenie standardowe = 1), więc wartości
+        nie mieszczą się w [−1, 1] — spójne, skrajne kluby leżą dalej.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p id="meta-line"></p>
+    <p>
+      Metoda: bayesowski model przestrzenny (2-parametrowy IRT / probit), estymacja MCMC
+      (sampler Gibbsa z augmentacją Alberta-Chiba). Dane: głosowania imienne z
+      <a href="https://api.sejm.gov.pl">api.sejm.gov.pl</a>.
+    </p>
+    <p class="disclaimer">
+      Projekt analityczno-edukacyjny. „Punkt idealny" to pozycja w przestrzeni głosowań,
+      nie ocena polityka. Niepewność rośnie dla posłów rzadko głosujących.
+    </p>
+  </footer>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

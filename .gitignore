@@ -1,6 +1,8 @@
 .venv/
 data/
 results/
+.claude/
+.DS_Store
 __pycache__/
 *.pyc
 *.pkl
