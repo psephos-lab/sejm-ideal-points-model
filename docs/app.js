@@ -244,27 +244,58 @@ function closeProfile() {
 }
 
 function renderMiniAxis(mp) {
+  // Histogram of the whole chamber on the left-right spectrum (stacked by club),
+  // with the selected MP's position + 90% CI marked. x = position, y = # MPs.
   const svg = d3.select("#mini-axis");
   svg.selectAll("*").remove();
   const width = document.getElementById("profile").clientWidth - 40;
-  const height = 56, yc = 28;
+  const height = 140;
+  const m = { top: 8, right: 8, bottom: 20, left: 26 };
   svg.attr("viewBox", `0 0 ${width} ${height}`).attr("height", height);
-  const x = d3.scaleLinear().domain([XEXT[0] - 0.1, XEXT[1] + 0.1]).range([10, width - 10]);
 
-  svg.append("line").attr("x1", 10).attr("x2", width - 10).attr("y1", yc).attr("y2", yc).attr("stroke", "#ccc");
-  svg.append("line").attr("x1", x(0)).attr("x2", x(0)).attr("y1", 6).attr("y2", yc + 6)
+  const x = d3.scaleLinear().domain([XEXT[0] - 0.1, XEXT[1] + 0.1]).range([m.left, width - m.right]);
+  const bins = d3.bin().domain(x.domain()).thresholds(22).value((d) => d.x)(DATA.mps);
+  const maxCount = d3.max(bins, (b) => b.length) || 1;
+  const y = d3.scaleLinear().domain([0, maxCount]).range([height - m.bottom, m.top]);
+  const clubOrder = DATA.clubs.map((c) => c.club);   // sorted by mean -> stable stacking
+
+  // y-axis (count) with faint gridlines
+  svg.append("g").attr("class", "axis").attr("transform", `translate(${m.left},0)`)
+    .call(d3.axisLeft(y).ticks(3).tickSize(-(width - m.left - m.right)))
+    .call((g) => g.selectAll(".tick line").attr("stroke", "#eee"))
+    .call((g) => g.select(".domain").remove());
+
+  // stacked histogram bars
+  bins.forEach((bin) => {
+    const x0 = x(bin.x0), x1 = x(bin.x1), w = Math.max(1, x1 - x0 - 1);
+    const byClub = {};
+    bin.forEach((d) => { byClub[d.club] = (byClub[d.club] || 0) + 1; });
+    let acc = 0;
+    clubOrder.forEach((club) => {
+      const c = byClub[club]; if (!c) return;
+      svg.append("rect").attr("x", x0 + 0.5).attr("width", w)
+        .attr("y", y(acc + c)).attr("height", y(acc) - y(acc + c))
+        .attr("fill", color(club)).attr("opacity", 0.85);
+      acc += c;
+    });
+  });
+
+  // zero line
+  svg.append("line").attr("x1", x(0)).attr("x2", x(0)).attr("y1", m.top).attr("y2", height - m.bottom)
     .attr("stroke", "#bbb").attr("stroke-dasharray", "3 2");
-  svg.append("g").selectAll("circle").data(DATA.mps).join("circle")
-    .attr("cx", (d) => x(d.x)).attr("cy", yc).attr("r", 1.5).attr("fill", "#d0d0d0");
-  const cm = CLUB_MEAN[mp.club];
-  svg.append("line").attr("x1", x(cm)).attr("x2", x(cm)).attr("y1", yc - 9).attr("y2", yc + 9)
-    .attr("stroke", color(mp.club)).attr("stroke-width", 2).attr("stroke-opacity", .6);
-  svg.append("line").attr("x1", x(mp.lo)).attr("x2", x(mp.hi)).attr("y1", yc).attr("y2", yc)
-    .attr("stroke", color(mp.club)).attr("stroke-width", 2).attr("stroke-opacity", .5);
-  svg.append("circle").attr("cx", x(mp.x)).attr("cy", yc).attr("r", 5)
+
+  // selected MP: CI band + vertical line + dot on top
+  svg.append("rect").attr("x", x(mp.lo)).attr("width", Math.max(1, x(mp.hi) - x(mp.lo)))
+    .attr("y", m.top).attr("height", height - m.bottom - m.top)
+    .attr("fill", color(mp.club)).attr("opacity", 0.13);
+  svg.append("line").attr("x1", x(mp.x)).attr("x2", x(mp.x)).attr("y1", m.top).attr("y2", height - m.bottom)
+    .attr("stroke", "#000").attr("stroke-width", 1.5);
+  svg.append("circle").attr("cx", x(mp.x)).attr("cy", m.top + 4).attr("r", 4)
     .attr("fill", color(mp.club)).attr("stroke", "#000").attr("stroke-width", 1);
-  svg.append("text").attr("x", 10).attr("y", height - 3).attr("class", "axis-label").text("lewica");
-  svg.append("text").attr("x", width - 10).attr("y", height - 3).attr("text-anchor", "end")
+
+  // x labels
+  svg.append("text").attr("x", m.left).attr("y", height - 4).attr("class", "axis-label").text("lewica");
+  svg.append("text").attr("x", width - m.right).attr("y", height - 4).attr("text-anchor", "end")
     .attr("class", "axis-label").text("prawica");
 }
 
