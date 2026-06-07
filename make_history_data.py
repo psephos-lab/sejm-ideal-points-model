@@ -20,7 +20,8 @@ OUT_MP = "docs/mp_votes.json"
 
 def main():
     data = fetch_rollcall(verbose=False)          # UNFILTERED: full chronological set
-    Y, mp_ids, mp_info, vote_meta = data["Y"], data["mp_ids"], data["mp_info"], data["vote_meta"]
+    Y, V, mp_ids, mp_info, vote_meta = (data["Y"], data["V"], data["mp_ids"],
+                                        data["mp_info"], data["vote_meta"])
     n, m = Y.shape
     mask = ~np.isnan(Y)
     clubs = np.array([mp_info.loc[i, "club"] if i in mp_info.index else "?" for i in mp_ids])
@@ -50,14 +51,11 @@ def main():
             "m": maj,
         })
 
-    # per-MP code strings aligned to vote order
-    mp_votes = {}
-    for r, mid in enumerate(mp_ids):
-        chars = []
-        for j in range(m):
-            val = Y[r, j]
-            chars.append("Y" if val == 1 else "N" if val == 0 else ".")
-        mp_votes[str(mid)] = "".join(chars)
+    # per-MP code strings aligned to vote order, from the 4-state V matrix
+    # V codes: 0=NO, 1=YES, 2=ABSTAIN, 3=absent/none  ->  N / Y / A / .
+    chars = np.array(["N", "Y", "A", "."])
+    Vc = np.clip(V, 0, 3)
+    mp_votes = {str(mid): "".join(chars[Vc[r]]) for r, mid in enumerate(mp_ids)}
 
     os.makedirs("docs", exist_ok=True)
     with open(OUT_VOTES, "w", encoding="utf-8") as f:

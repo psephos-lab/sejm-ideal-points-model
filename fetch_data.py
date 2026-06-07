@@ -18,7 +18,7 @@ import pandas as pd
 
 API_BASE = "https://api.sejm.gov.pl/sejm"
 CACHE_DIR = "data"
-CACHE_FILE = os.path.join(CACHE_DIR, "term10_rollcall.pkl")
+CACHE_FILE = os.path.join(CACHE_DIR, "term10_rollcall_v2.pkl")  # v2: correct enumeration
 
 
 def _get(url: str, retries: int = 3) -> dict | list:
@@ -31,6 +31,28 @@ def _get(url: str, retries: int = 3) -> dict | list:
             if attempt == retries - 1:
                 raise
             time.sleep(2 ** attempt)
+
+
+def _get_or_none(url: str):
+    """GET that returns None on 404 (no retry) — for probing voting numbers."""
+    try:
+        r = requests.get(url, timeout=15)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+    except requests.HTTPError:
+        return None
+    except Exception:
+        # one transient retry
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 404:
+                return None
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return None
 
 
 def fetch_mps(term: str = "term10") -> pd.DataFrame:
@@ -72,48 +94,48 @@ def fetch_rollcall(term: str = "term10", verbose: bool = True) -> dict:
     if verbose:
         print("Fetching sitting list...")
     sittings = _get(f"{API_BASE}/{term}/votings")
-    total = sum(s["votingsNum"] for s in sittings)
+    proceedings = sorted({s["proceeding"] for s in sittings})
     if verbose:
-        print(f"  {len(sittings)} sittings, {total} votings total")
+        print(f"  {len(proceedings)} proceedings (from {len(sittings)} sitting-days)")
 
-    # Accumulate per-vote columns as list of arrays
-    vote_ids = []
-    vote_meta = []
-    columns = []
+    # Enumerate each proceeding by probing voting numbers until a run of 404s.
+    # The per-day `votingsNum` field is unreliable: multi-day proceedings repeat in
+    # the list and undercount the per-proceeding voting numbering — which previously
+    # caused BOTH duplicated and missing votes. Probing (p, 1..N) is authoritative.
+    MAX_GAP, HARD_CAP = 10, 400
+    CODE = {"YES": 1, "NO": 0, "ABSTAIN": 2}        # else -> 3 (absent / no record)
 
+    vote_ids, vote_meta, columns, vcolumns = [], [], [], []
     done = 0
-    for sitting in sittings:
-        s_num = sitting["proceeding"]
-        n = sitting["votingsNum"]
-        for v_num in range(1, n + 1):
-            try:
-                detail = _get(f"{API_BASE}/{term}/votings/{s_num}/{v_num}")
-            except Exception as e:
-                if verbose:
-                    print(f"  skip {s_num}/{v_num}: {e}")
-                done += 1
+    for p in proceedings:
+        consec, v_num = 0, 0
+        while consec < MAX_GAP and v_num < HARD_CAP:
+            v_num += 1
+            detail = _get_or_none(f"{API_BASE}/{term}/votings/{p}/{v_num}")
+            if detail is None:
+                consec += 1
                 continue
-
-            # Only standard electronic votes
+            consec = 0
             if detail.get("kind") != "ELECTRONIC":
-                done += 1
                 continue
 
             col = np.full(len(mp_ids), np.nan, dtype=np.float32)
+            vcol = np.full(len(mp_ids), 3, dtype=np.int8)      # 3 = absent / no record
             for v in detail.get("votes", []):
                 idx = mp_index.get(v["MP"])
                 if idx is None:
                     continue
-                vote_str = v.get("vote", "")
-                if vote_str == "YES":
+                vs = v.get("vote", "")
+                vcol[idx] = CODE.get(vs, 3)
+                if vs == "YES":
                     col[idx] = 1.0
-                elif vote_str == "NO":
+                elif vs == "NO":
                     col[idx] = 0.0
-                # ABSENT / ABSTAIN → leave as NaN
+                # ABSTAIN / ABSENT -> NaN in Y (model), but recorded in V (history)
 
-            vote_ids.append((s_num, v_num))
+            vote_ids.append((p, v_num))
             vote_meta.append({
-                "sitting": s_num,
+                "sitting": p,
                 "voting_num": v_num,
                 "date": detail.get("date", ""),
                 "title": detail.get("title", ""),
@@ -123,15 +145,18 @@ def fetch_rollcall(term: str = "term10", verbose: bool = True) -> dict:
                 "abstain": detail.get("abstain", 0),
             })
             columns.append(col)
+            vcolumns.append(vcol)
 
             done += 1
             if verbose and done % 200 == 0:
-                print(f"  {done}/{total} ({100*done/total:.0f}%)", flush=True)
+                print(f"  fetched {done} votes (proceeding {p})", flush=True)
 
     Y = np.stack(columns, axis=1) if columns else np.empty((len(mp_ids), 0), dtype=np.float32)
+    V = np.stack(vcolumns, axis=1) if vcolumns else np.empty((len(mp_ids), 0), dtype=np.int8)
 
     result = {
-        "Y": Y,
+        "Y": Y,            # float32: 1=YES, 0=NO, NaN=abstain/absent (model input)
+        "V": V,            # int8: 1=YES, 0=NO, 2=ABSTAIN, 3=absent/none (history)
         "mp_ids": mp_ids,
         "vote_ids": vote_ids,
         "mp_info": mp_info,

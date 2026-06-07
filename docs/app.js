@@ -19,6 +19,7 @@ let XEXT = null;                               // global ideal-point extent
 let CLUB_MEAN = {};                            // club -> mean position
 let VOTES = null;                              // lazy-loaded votes.json (metadata)
 let MPVOTES = null;                            // lazy-loaded mp_votes.json (per-MP codes)
+let MODELPARAMS = null;                         // lazy-loaded model_params.json (beta/alpha)
 
 const tooltip = document.getElementById("tooltip");
 
@@ -306,7 +307,7 @@ function voteBadge(code) {
   if (code === "Y") return '<span class="badge za">Za</span>';
   if (code === "N") return '<span class="badge pr">Przeciw</span>';
   if (code === "A") return '<span class="badge ab">Wstrzymał</span>';
-  return '<span class="badge none" title="nieobecny lub wstrzymał się">—</span>';
+  return '<span class="badge none" title="nieobecny">—</span>';
 }
 
 async function openHistory(mp) {
@@ -315,11 +316,12 @@ async function openHistory(mp) {
   modal.innerHTML = `<div class="modal-card"><div class="loading">Ładowanie historii…</div></div>`;
   if (!VOTES) {
     try {
-      const [v, mv] = await Promise.all([
+      const [v, mv, mpar] = await Promise.all([
         fetch("votes.json").then((r) => r.json()),
         fetch("mp_votes.json").then((r) => r.json()),
+        fetch("model_params.json").then((r) => r.json()).catch(() => ({})),
       ]);
-      VOTES = v.votes; MPVOTES = mv;
+      VOTES = v.votes; MPVOTES = mv; MODELPARAMS = mpar;
     } catch (e) {
       modal.innerHTML = `<div class="modal-card"><button class="close">×</button><p>Błąd ładowania historii.</p></div>`;
       modal.querySelector(".close").onclick = closeHistory;
@@ -386,12 +388,12 @@ function onBreakdownClick(e) {
   if (wrap.childElementCount) {
     wrap.innerHTML = ""; btn.textContent = "▾ rozkład głosów";
   } else {
-    renderBreakdown(+btn.dataset.i, wrap); btn.textContent = "▴ ukryj rozkład";
+    renderBreakdown(VOTES[+btn.dataset.i], wrap); btn.textContent = "▴ ukryj rozkład";
   }
 }
 
-const VOTE_COL = { Y: "#1a9850", N: "#d73027" };
-const voteName = (c) => (c === "Y" ? "Za" : c === "N" ? "Przeciw" : "nieob./wstrzym.");
+const VOTE_COL = { Y: "#1a9850", N: "#d73027", A: "#e0a800" };
+const voteName = (c) => (c === "Y" ? "Za" : c === "N" ? "Przeciw" : c === "A" ? "Wstrzymał się" : "nieobecny");
 
 function cuttingPoint(decided) {
   // 1-D threshold on ideal point that best separates Za (y=1) from Przeciw (y=0)
@@ -413,9 +415,18 @@ function cuttingPoint(decided) {
   return { t: best, coherence: 1 - bestErr / decided.length };
 }
 
-function renderBreakdown(vi, wrap) {
+function ncdf(z) {                                  // standard normal CDF (approx)
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989423 * Math.exp(-z * z / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return z > 0 ? 1 - p : p;
+}
+
+function renderBreakdown(vote, wrap) {
+  const vi = vote.i;
   const W = wrap.clientWidth || 760, H = 150;
   const m = { top: 10, right: 12, bottom: 22, left: 12 }, R2 = 3.2;
+  const params = MODELPARAMS && MODELPARAMS[`${vote.s}_${vote.v}`];   // [beta, alpha] or undefined
   const voters = DATA.mps.map((mp) => ({ mp, v: (MPVOTES[String(mp.id)] || "")[vi] || "." }));
   const x = d3.scaleLinear().domain([XEXT[0] - 0.1, XEXT[1] + 0.1]).range([m.left, W - m.right]);
 
@@ -430,16 +441,46 @@ function renderBreakdown(vi, wrap) {
 
   const za = voters.filter((o) => o.v === "Y").length;
   const pr = voters.filter((o) => o.v === "N").length;
-  const ab = voters.length - za - pr;
+  const ws = voters.filter((o) => o.v === "A").length;
+  const ni = voters.length - za - pr - ws;
   const decided = voters.filter((o) => o.v === "Y" || o.v === "N").map((o) => ({ x: o.mp.x, y: o.v === "Y" ? 1 : 0 }));
-  const cut = cuttingPoint(decided);
 
   const svg = d3.select(wrap).append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("height", H);
+
+  // --- model mode: probability heatmap Phi(beta*x - alpha) + cutting point alpha/beta ---
+  let capRight = "";
+  if (params) {
+    const [beta, alpha] = params;
+    const defs = svg.append("defs");
+    const gid = "g" + vote.s + "_" + vote.v;
+    const lg = defs.append("linearGradient").attr("id", gid).attr("gradientUnits", "userSpaceOnUse")
+      .attr("x1", x(x.domain()[0])).attr("x2", x(x.domain()[1])).attr("y1", 0).attr("y2", 0);
+    const NS = 24;
+    for (let k = 0; k <= NS; k++) {
+      const xv = x.domain()[0] + (k / NS) * (x.domain()[1] - x.domain()[0]);
+      lg.append("stop").attr("offset", `${100 * k / NS}%`)
+        .attr("stop-color", d3.interpolateRgb("#d73027", "#1a9850")(ncdf(beta * xv - alpha)));
+    }
+    svg.append("rect").attr("x", m.left).attr("y", m.top)
+      .attr("width", W - m.left - m.right).attr("height", H - m.top - m.bottom)
+      .attr("fill", `url(#${gid})`).attr("opacity", 0.20);
+    const xstar = alpha / beta;
+    if (xstar > x.domain()[0] && xstar < x.domain()[1])
+      svg.append("line").attr("x1", x(xstar)).attr("x2", x(xstar)).attr("y1", m.top - 2).attr("y2", H - m.bottom)
+        .attr("stroke", "#333").attr("stroke-dasharray", "4 3").attr("stroke-width", 1.2);
+    const hit = decided.length
+      ? decided.filter((d) => (beta * d.x - alpha > 0) === (d.y === 1)).length / decided.length : 0;
+    capRight = `<span class="coh">model · x*=${xstar.toFixed(2)} · β=${beta.toFixed(1)} · ${Math.round(hit * 100)}% trafień</span>`;
+  } else {
+    const cut = cuttingPoint(decided);
+    if (cut) svg.append("line").attr("x1", x(cut.t)).attr("x2", x(cut.t)).attr("y1", m.top - 2).attr("y2", H - m.bottom)
+      .attr("stroke", "#333").attr("stroke-dasharray", "4 3").attr("stroke-width", 1.2);
+    if (cut) capRight = `<span class="coh">empiryczna · x=${cut.t.toFixed(2)} · ${Math.round(cut.coherence * 100)}% zgodne</span>`;
+  }
+
   svg.append("line").attr("x1", m.left).attr("x2", W - m.right)
     .attr("y1", H - m.bottom).attr("y2", H - m.bottom).attr("stroke", "#ddd");
-  svg.append("line").attr("x1", x(0)).attr("x2", x(0)).attr("y1", m.top).attr("y2", H - m.bottom).attr("stroke", "#eee");
-  if (cut) svg.append("line").attr("x1", x(cut.t)).attr("x2", x(cut.t)).attr("y1", m.top - 2).attr("y2", H - m.bottom)
-    .attr("stroke", "#333").attr("stroke-dasharray", "4 3").attr("stroke-width", 1.2);
+  svg.append("line").attr("x1", x(0)).attr("x2", x(0)).attr("y1", m.top).attr("y2", H - m.bottom).attr("stroke", "#ccc");
 
   svg.append("g").selectAll("circle").data(nodes).join("circle")
     .attr("cx", (n) => n.x).attr("cy", (n) => n.y).attr("r", R2)
@@ -455,8 +496,8 @@ function renderBreakdown(vi, wrap) {
   cap.innerHTML =
     `<span class="k"><i style="background:#1a9850"></i>za ${za}</span>` +
     `<span class="k"><i style="background:#d73027"></i>przeciw ${pr}</span>` +
-    `<span class="k"><i style="background:#cfcfcf"></i>nieob./wstrzym. ${ab}</span>` +
-    (cut ? `<span class="coh">linia podziału: x=${cut.t.toFixed(2)} · ${Math.round(cut.coherence * 100)}% zgodne z osią</span>` : "");
+    `<span class="k"><i style="background:#e0a800"></i>wstrzym. ${ws}</span>` +
+    `<span class="k"><i style="background:#cfcfcf"></i>nieob. ${ni}</span>` + capRight;
   wrap.appendChild(cap);
 }
 
