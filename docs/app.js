@@ -91,41 +91,42 @@ function render() {
   svg.append("text").attr("class", "axis-label").attr("x", width - margin.right)
     .attr("y", height - 8).attr("text-anchor", "end").text("prawica →");
 
-  // beeswarm layout
-  const nodes = DATA.mps.map((d) => ({ ...d, ideal: d.x }));
+  // beeswarm layout. Nodes carry the MP data in .mp; the force simulation freely
+  // mutates .x/.y as PIXEL coordinates (so we must NOT read d.x as the ideal point).
+  const nodes = DATA.mps.map((d) => ({ mp: d }));
   const sim = d3.forceSimulation(nodes)
-    .force("x", d3.forceX((d) => x(d.ideal)).strength(1))
+    .force("x", d3.forceX((n) => x(n.mp.x)).strength(1))
     .force("y", d3.forceY((height - margin.top - margin.bottom) / 2 + margin.top).strength(0.05))
     .force("collide", d3.forceCollide(R + 0.6))
     .stop();
   for (let i = 0; i < 220; i++) sim.tick();
   const yMin = margin.top + R, yMax = height - margin.bottom - R;
-  nodes.forEach((d) => { d.y = Math.max(yMin, Math.min(yMax, d.y)); });
+  nodes.forEach((n) => { n.y = Math.max(yMin, Math.min(yMax, n.y)); });
 
   // CI lines (optional)
   svg.append("g").attr("id", "ci-group").attr("display", showCI ? null : "none")
     .selectAll("line").data(nodes).join("line")
-    .attr("class", "ci-line").attr("stroke", (d) => color(d.club))
-    .attr("x1", (d) => x(d.lo)).attr("x2", (d) => x(d.hi))
-    .attr("y1", (d) => d.y).attr("y2", (d) => d.y);
+    .attr("class", "ci-line").attr("stroke", (n) => color(n.mp.club))
+    .attr("x1", (n) => x(n.mp.lo)).attr("x2", (n) => x(n.mp.hi))
+    .attr("y1", (n) => n.y).attr("y2", (n) => n.y);
 
   // dots
   svg.append("g").selectAll("circle").data(nodes).join("circle")
     .attr("class", "dot-mp").attr("r", R)
-    .attr("cx", (d) => d.x).attr("cy", (d) => d.y)
-    .attr("fill", (d) => color(d.club))
-    .classed("selected", (d) => selected && d.id === selected.id)
-    .on("mousemove", showTip).on("mouseleave", hideTip)
-    .on("click", (e, d) => openProfile(d));
+    .attr("cx", (n) => n.x).attr("cy", (n) => n.y)
+    .attr("fill", (n) => color(n.mp.club))
+    .classed("selected", (n) => selected && n.mp.id === selected.id)
+    .on("mousemove", (e, n) => showTip(e, n.mp)).on("mouseleave", hideTip)
+    .on("click", (e, n) => openProfile(n.mp));
 
   applyFilter();
 }
 
-function showTip(event, d) {
+function showTip(event, mp) {
   tooltip.hidden = false;
   tooltip.innerHTML =
-    `<b>${d.name}</b><br><span class="club">${d.club}</span>` +
-    `<div class="pos">pozycja: ${d.x.toFixed(2)} &nbsp;(90% CI: ${d.lo.toFixed(2)}…${d.hi.toFixed(2)})</div>`;
+    `<b>${mp.name}</b><br><span class="club">${mp.club}</span>` +
+    `<div class="pos">pozycja: ${mp.x.toFixed(2)} &nbsp;(90% CI: ${mp.lo.toFixed(2)}…${mp.hi.toFixed(2)})</div>`;
   const wrap = document.querySelector(".chart-wrap").getBoundingClientRect();
   let left = event.clientX - wrap.left + 12;
   if (left > wrap.width - 250) left = event.clientX - wrap.left - 250;
@@ -138,12 +139,12 @@ function hideTip() { tooltip.hidden = true; }
 function applyFilter() {
   const q = norm(document.getElementById("search").value.trim());
   d3.selectAll(".dot-mp")
-    .classed("dimmed", (d) => {
-      if (activeClub && d.club !== activeClub) return true;
-      if (q && !norm(d.name).includes(q)) return true;
+    .classed("dimmed", (n) => {
+      if (activeClub && n.mp.club !== activeClub) return true;
+      if (q && !norm(n.mp.name).includes(q)) return true;
       return false;
     })
-    .classed("hit", (d) => q && norm(d.name).includes(q));
+    .classed("hit", (n) => q && norm(n.mp.name).includes(q));
 }
 
 document.getElementById("search").addEventListener("input", applyFilter);
@@ -191,7 +192,7 @@ const fmtPct = (v) => (v == null ? "—" : Math.round(v * 100) + "%");
 
 function openProfile(mp) {
   selected = mp;
-  d3.selectAll(".dot-mp").classed("selected", (d) => d.id === mp.id);
+  d3.selectAll(".dot-mp").classed("selected", (n) => n.mp.id === mp.id);
 
   const neighbors = DATA.mps
     .filter((d) => d.id !== mp.id)
@@ -345,14 +346,21 @@ function renderHistory(mp) {
   update();
 }
 
+function partyBadge(pctZa) {
+  if (pctZa == null) return '<span class="badge none">—</span>';
+  const za = pctZa >= 50;
+  const dir = za ? "Za" : "Przeciw";
+  const cohesion = za ? pctZa : 100 - pctZa;     // party loyalty on this vote
+  return `<span class="badge ${za ? "za" : "pr"}">${dir} ${cohesion}%</span>`;
+}
+
 function rowHtml(v, mpCode, mpClub) {
-  const partyMaj = v.m[mpClub];
   const pdf = `https://api.sejm.gov.pl/sejm/term10/votings/${v.s}/${v.v}/pdf`;
   return `<div class="hist-row">
     <div class="hr-date">${v.d}</div>
     <div class="hr-votes">
       <span class="hr-lab">poseł</span>${voteBadge(mpCode)}
-      <span class="hr-lab">klub</span>${partyMaj ? voteBadge(partyMaj) : '<span class="badge none">—</span>'}
+      <span class="hr-lab">klub</span>${partyBadge(v.m[mpClub])}
     </div>
     <div class="hr-main">
       <div class="hr-title">${esc(v.t)}</div>

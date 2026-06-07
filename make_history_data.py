@@ -32,11 +32,11 @@ def main():
     votes = []
     for j, vm in enumerate(vote_meta):
         col = Y[:, j]; mj = mask[:, j]
-        maj = {}
+        maj = {}                                       # club -> % voting "za" (present members)
         for c, rows in club_rows.items():
             present = rows[mj[rows]]
             if len(present):
-                maj[c] = "Y" if col[present].mean() > 0.5 else "N"
+                maj[c] = round(100 * float(col[present].mean()))
         yes, no, ab = vm.get("yes", 0), vm.get("no", 0), vm.get("abstain", 0)
         minority = min(yes, no) / max(yes + no, 1)
         votes.append({
