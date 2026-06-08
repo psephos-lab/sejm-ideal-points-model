@@ -219,17 +219,15 @@ the signature of iron party discipline.
 ![Ideal points, colored by club](figures/ideal_points.png)
 ![Distribution by club](figures/club_distributions.png)
 
-## 8. Results — a second dimension
+## 8. Results — a second dimension (and a lesson in interpreting it)
 
-Extending to 2-D ideal points (with Procrustes alignment and a target rotation that
-keeps dimension 1 comparable to the 1-D solution) reveals an **economic axis** that
-cross-cuts government–opposition: parties that are enemies on dim 1 can be neighbours
-on dim 2.
+Extending to 2-D ideal points (Procrustes alignment + a target rotation that keeps
+dim 1 comparable to the 1-D solution) recovers a **modest secondary dimension** that
+cross-cuts government–opposition. Convergence (4 chains × 11,000 draws): dim 1
+$\hat R_{\max}=1.058$, dim 2 $\hat R_{\max}=1.076$, mean ESS ≈ 650 / 900. Mean dim-2
+position by club:
 
-Convergence (4 chains × 11,000 draws): dim 1 $\hat R_{\max}=1.058$, dim 2
-$\hat R_{\max}=1.076$, mean ESS ≈ 650 / 900. Mean dim-2 position by club:
-
-| Club | dim 2 (economic) |
+| Club | dim 2 |
 |---|---|
 | Lewica | −1.31 |
 | Razem | −1.29 |
@@ -239,13 +237,31 @@ $\hat R_{\max}=1.076$, mean ESS ≈ 650 / 900. Mean dim-2 position by club:
 | Demokracja | +1.09 |
 | Konfederacja | **+4.19** |
 
-The ordering runs from the statist/redistributive pole (**Lewica, Razem — and PiS**)
-to the free-market pole (**Konfederacja**, far out). The take-away: PiS and the Left
-are bitter rivals on *who governs* (dim 1) but sit on the **same statist side** on
-*economics* (dim 2), opposite the free-market Konfederacja. One caveat: Konfederacja
-is so extreme on dim 2 that it dominates the axis — the coherent ordering of the
-*other* parties is what confirms dim 2 is genuinely economic, not just
-"Konfederacja-ness".
+**It is tempting to call this an "economic" axis** — Lewica, Razem and PiS (all
+statist on welfare) sit on one side, the free-market Konfederacja on the other. That
+was my first label. **It is wrong**, and the way I caught it is the real lesson here.
+
+A dimension's meaning must come from the **content of the bills that load most
+heavily on it**, not from where the parties happen to land plus prior knowledge —
+the latter invites confirmation bias. Content-coding the ~12 distinct top-dim-2
+bills shows they are **heterogeneous**: asylum/immigration, the Constitutional
+Tribunal, armed-forces/border security, the criminal code, local government, plus
+personnel votes around Konfederacja's own MPs (dismissing vice-marshal Bosak) — and
+only ~2 of 12 are actually economic. The honest description: dim 2 is **dominated by
+Konfederacja's distinctiveness** (a libertarian–sovereigntist–anti-establishment
+profile spanning several issue areas), the set of votes where Konfederacja — and
+sometimes the far left — breaks from the KO–PiS mainstream. Not a clean economic axis.
+
+> **Lesson:** the model recovers *geometry*; humans supply the *labels* — and the
+> labels are only defensible if read off the high-discrimination items, not the party
+> map. Here that step demoted a tidy "economic axis" story to an honest "heterogeneous,
+> Konfederacja-driven second cleavage".
+
+Whether even this second dimension is worth the trouble is itself testable. A
+dimensionality pilot (model-free scree; classification gain; per-dimension
+discrimination) says: dim 1 alone classifies 98.6% of votes, dim 2 adds 0.7 pp, and
+a **third dimension adds 0.1 pp — noise**. The Sejm is, to a very good approximation,
+one-dimensional with a faint second dimension.
 
 ![2-D ideal points](figures/ideal_points_2d.png)
 
