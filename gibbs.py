@@ -269,7 +269,7 @@ if __name__ == "__main__":
     # punch in some missingness
     Y[rng.uniform(size=(n, m)) < 0.1] = np.nan
 
-    anchor = int(np.argmax(true_x))  # most right-wing MP
+    anchor = int(np.argmax(true_x))  # anchor MP at the positive pole
     out = gibbs_ideal_point(Y, anchor, num_warmup=500, num_samples=500, verbose=True)
     x_hat = out["x"].mean(0)
     # correlation with truth (sign-aligned via anchor)

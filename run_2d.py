@@ -116,7 +116,7 @@ def main():
                    edgecolors="white", linewidths=0.3)
     ax.axhline(0, color="k", lw=0.6, ls="--", alpha=0.4)
     ax.axvline(0, color="k", lw=0.6, ls="--", alpha=0.4)
-    ax.set_xlabel("Wymiar 1 (rząd ↔ opozycja)")
+    ax.set_xlabel("Wymiar 1 (główna oś)")
     ax.set_ylabel("Wymiar 2 (wtórny podział)")
     ax.set_title("Punkty idealne 2D — Sejm X kadencji")
     ax.legend(fontsize=8, ncol=2, framealpha=0.9)

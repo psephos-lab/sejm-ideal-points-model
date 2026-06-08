@@ -80,17 +80,15 @@ function render() {
   const x = d3.scaleLinear().domain([ext[0] - pad, ext[1] + pad])
     .range([margin.left, width - margin.right]);
 
-  // axis + zero line + L/R labels
+  // axis + zero line + label
   svg.append("g").attr("class", "axis")
     .attr("transform", `translate(0,${height - margin.bottom})`)
     .call(d3.axisBottom(x).ticks(7));
   svg.append("line").attr("class", "zero-line")
     .attr("x1", x(0)).attr("x2", x(0))
     .attr("y1", margin.top).attr("y2", height - margin.bottom);
-  svg.append("text").attr("class", "axis-label").attr("x", margin.left)
-    .attr("y", height - 8).attr("text-anchor", "start").text("← lewica");
-  svg.append("text").attr("class", "axis-label").attr("x", width - margin.right)
-    .attr("y", height - 8).attr("text-anchor", "end").text("prawica →");
+  svg.append("text").attr("class", "axis-label").attr("x", width / 2)
+    .attr("y", height - 8).attr("text-anchor", "middle").text("główna oś podziału (z głosowań imiennych)");
 
   // beeswarm layout. Nodes carry the MP data in .mp; the force simulation freely
   // mutates .x/.y as PIXEL coordinates (so we must NOT read d.x as the ideal point).
@@ -210,14 +208,14 @@ function openProfile(mp) {
       <span class="ci">90% CI: ${mp.lo.toFixed(2)} … ${mp.hi.toFixed(2)}</span></div>
     <svg id="mini-axis" role="img" aria-label="Pozycja na osi"></svg>
     <dl class="stats">
-      <dt>Ranga (lewica→prawica)</dt><dd>#${mp.rank} / ${DATA.meta.n_mps}</dd>
+      <dt>Pozycja na osi podziału</dt><dd>#${mp.rank} / ${DATA.meta.n_mps}</dd>
       <dt>W klubie</dt><dd>#${mp.club_rank} / ${mp.club_size}</dd>
       <dt>Frekwencja</dt><dd>${fmtPct(mp.turnout)} <span class="muted">(${mp.votes}/${DATA.meta.n_votes})</span></dd>
       <dt>Lojalność klubowa</dt><dd>${fmtPct(mp.loyalty)}</dd>
       <dt>Zbieżność (R̂)</dt><dd>${mp.rhat.toFixed(3)} <span class="${rhatOk ? "ok" : "warn"}">${rhatOk ? "✓" : "⚠"}</span></dd>
     </dl>
     <button class="hist-btn" id="hist-open">📜 Historia głosowań →</button>
-    <h3>Najbliżsi ideologicznie</h3>
+    <h3>Najbliżsi na osi</h3>
     <ul class="neighbors">
       ${neighbors.map((d) => `<li data-id="${d.id}"><span class="dot" style="background:${color(d.club)}"></span><span class="nm">${d.name}</span><span class="nx">${d.x.toFixed(2)}</span></li>`).join("")}
     </ul>`;
@@ -245,7 +243,7 @@ function closeProfile() {
 }
 
 function renderMiniAxis(mp) {
-  // Histogram of the whole chamber on the left-right spectrum (stacked by club),
+  // Histogram of the whole chamber on the main axis (stacked by club),
   // with the selected MP's position + 90% CI marked. x = position, y = # MPs.
   const svg = d3.select("#mini-axis");
   svg.selectAll("*").remove();
@@ -295,9 +293,9 @@ function renderMiniAxis(mp) {
     .attr("fill", color(mp.club)).attr("stroke", "#000").attr("stroke-width", 1);
 
   // x labels
-  svg.append("text").attr("x", m.left).attr("y", height - 4).attr("class", "axis-label").text("lewica");
+  svg.append("text").attr("x", m.left).attr("y", height - 4).attr("class", "axis-label").text("");
   svg.append("text").attr("x", width - m.right).attr("y", height - 4).attr("text-anchor", "end")
-    .attr("class", "axis-label").text("prawica");
+    .attr("class", "axis-label").text("");
 }
 
 // ---------- voting history modal ----------
@@ -380,7 +378,7 @@ function renderHistory(mp) {
   update();
 }
 
-// expand/collapse the per-vote ideological breakdown (Voteview-style)
+// expand/collapse the per-vote breakdown (Voteview-style)
 function onBreakdownClick(e) {
   const btn = e.target.closest(".bd-toggle");
   if (!btn) return;
@@ -487,9 +485,9 @@ function renderBreakdown(vote, wrap) {
     .attr("fill", (n) => VOTE_COL[n.o.v] || "#cfcfcf").attr("stroke", "#fff").attr("stroke-width", 0.4)
     .append("title").text((n) => `${n.o.mp.name} (${n.o.mp.club}): ${voteName(n.o.v)}`);
 
-  svg.append("text").attr("x", m.left).attr("y", H - 6).attr("class", "axis-label").text("lewica");
+  svg.append("text").attr("x", m.left).attr("y", H - 6).attr("class", "axis-label").text("");
   svg.append("text").attr("x", W - m.right).attr("y", H - 6).attr("text-anchor", "end")
-    .attr("class", "axis-label").text("prawica");
+    .attr("class", "axis-label").text("");
 
   const cap = document.createElement("div");
   cap.className = "bd-cap";

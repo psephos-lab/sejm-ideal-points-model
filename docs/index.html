@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Punkty idealne posłów — Sejm X kadencji</title>
-  <meta name="description" content="Bayesowska estymacja pozycji ideologicznych (lewica–prawica) posłów Sejmu RP na podstawie głosowań imiennych." />
+  <meta name="description" content="Bayesowska estymacja pozycji posłów Sejmu RP na głównej osi podziału, odtworzonej z głosowań imiennych (model przestrzenny / MCMC)." />
   <link rel="preconnect" href="https://d3js.org" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -36,10 +36,17 @@
     <section class="howto">
       <h2>Jak to czytać</h2>
       <p>
-        Każdy punkt to jeden poseł. Pozioma oś to <strong>główny wymiar głosowań</strong>
-        odtworzony z samych głosowań imiennych — bez żadnych etykiet ideologicznych.
-        Układa się on jak oś <strong>lewica ↔ prawica</strong> (i zarazem rząd ↔ opozycja):
-        wartości ujemne to lewa strona, dodatnie — prawa.
+        Każdy punkt to jeden poseł. Pozioma oś to <strong>główna oś podziału</strong>
+        odtworzona z samych głosowań imiennych — <strong>bez przypisywania partiom
+        etykiet ideologicznych</strong>. Posłowie głosujący podobnie trafiają blisko
+        siebie. Znak (±) jest umowny (model zakotwiczono na jednym pośle).
+      </p>
+      <p class="muted">
+        <strong>Co ta oś reprezentuje?</strong> Najprawdopodobniej <em>główny podział
+        głosowań</em>, który w tej kadencji może odpowiadać układowi
+        <strong>rząd–opozycja</strong> (kluby koalicji skupiają się na jednym biegunie,
+        opozycji na drugim). Celowo <em>nie</em> nazywamy jej „lewica–prawica" — to
+        wymagałoby przypisania partiom ideologii, czego same głosowania nie rozstrzygają.
       </p>
       <p>
         Pozycje wyłaniają się z wzorców „za/przeciw": posłowie głosujący podobnie trafiają

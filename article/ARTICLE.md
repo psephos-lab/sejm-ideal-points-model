@@ -14,10 +14,10 @@ and an unfilled niche.*
 ## 1. The niche
 
 The United States has [Voteview](https://voteview.com): a public, interactive map
-of every legislator's ideological position, estimated from roll-call votes. Most
+of every legislator's position on the main voting axis, estimated from roll-call votes. Most
 other democracies have nothing comparable. Poland has excellent **descriptive**
 tools (vote trackers, attendance, party discipline) but **no public estimate of
-where individual MPs sit on a latent left–right axis** recovered from their votes.
+where individual MPs sit on a latent main axis of division** recovered from their votes.
 
 This project fills that gap for the Sejm (10th term) — and doubles as a hands-on
 tour of MCMC: the spatial voting model, why the textbook sampler fails here, and
@@ -69,7 +69,7 @@ symmetries that leave the likelihood unchanged:
 1. **Translation** $x_i \mapsto x_i + b$ (absorbed by $\alpha_j$) — fixed by the zero mean.
 2. **Scale** $(x_i,\beta_j)\mapsto(cx_i,\beta_j/c)$ — fixed by unit variance.
 3. **Reflection** $(x_i,\beta_j)\mapsto(-x_i,-\beta_j)$ — *not* fixed by a symmetric
-   prior. We resolve it by **anchoring**: forcing a known right-wing MP to have $x>0$.
+   prior. We resolve it by **anchoring**: forcing a chosen reference MP (a high-turnout PiS MP) to have $x>0$.
 
 ## 4. The posterior, and why we need MCMC
 
@@ -116,7 +116,7 @@ R-hat: max = 9.8e15      # want < 1.01
 
 The culprit is the **multiplicative** term $\beta_j x_i$: it creates a curved,
 ridged posterior. With near-perfect party-line votes (balanced 50/50 but perfectly
-aligned with the ideology axis), the likelihood becomes almost a step function and
+aligned with the main axis), the likelihood becomes almost a step function and
 $\beta_j$ wants to run to infinity. Gradient-based sampling cannot navigate it.
 
 > **Lesson:** "C is faster than Python" and "use a GPU" miss the point. The hot
@@ -207,14 +207,16 @@ The recovered axis cleanly separates the chamber. Mean position by club:
 | Konfederacja | +0.41 |
 | PiS | +1.14 |
 
-Face validity, with **no ideological labels given to the model**: the left extreme
-is Joanna Scheuring-Wielgus (Lewica, −1.12); the right extreme is PiS hardliners
-Artur Soboń (+1.39) and Jacek Ozdoba (+1.32). The distribution is strikingly
-**bimodal** — a government bloc and an opposition bloc with an almost empty centre,
-the signature of iron party discipline.
+Face validity, with **no labels given to the model**: at one end of the axis is
+Joanna Scheuring-Wielgus (Lewica, −1.12); at the other, PiS MPs Artur Soboń (+1.39)
+and Jacek Ozdoba (+1.32). The distribution is strikingly **bimodal** — two blocs with
+an almost empty centre, the signature of iron party discipline.
 
-> **Caveat / honesty:** dimension 1 is really the **government–opposition** cleavage
-> (which in Poland lines up roughly as left–right in placement), not pure ideology.
+> **Caveat / honesty:** I deliberately do **not** label this axis "left–right" — that
+> would impute party ideology the votes alone don't establish. It is best read as the
+> **main axis of division**, which in this term most plausibly corresponds to the
+> **government–opposition** split (one bloc is the governing coalition, the other the
+> opposition). That mapping is term-specific, not an intrinsic ideological scale.
 
 ![Ideal points, colored by club](figures/ideal_points.png)
 ![Distribution by club](figures/club_distributions.png)
@@ -237,9 +239,9 @@ position by club:
 | Demokracja | +1.09 |
 | Konfederacja | **+4.19** |
 
-**It is tempting to call this an "economic" axis** — Lewica, Razem and PiS (all
-statist on welfare) sit on one side, the free-market Konfederacja on the other. That
-was my first label. **It is wrong**, and the way I caught it is the real lesson here.
+**It is tempting to give this dimension a substantive label** from the way the clubs
+line up. My first guess was "economic". **It is wrong**, and the way I caught it is the
+real lesson here.
 
 A dimension's meaning must come from the **content of the bills that load most
 heavily on it**, not from where the parties happen to land plus prior knowledge —
@@ -247,10 +249,10 @@ the latter invites confirmation bias. Content-coding the ~12 distinct top-dim-2
 bills shows they are **heterogeneous**: asylum/immigration, the Constitutional
 Tribunal, armed-forces/border security, the criminal code, local government, plus
 personnel votes around Konfederacja's own MPs (dismissing vice-marshal Bosak) — and
-only ~2 of 12 are actually economic. The honest description: dim 2 is **dominated by
-Konfederacja's distinctiveness** (a libertarian–sovereigntist–anti-establishment
-profile spanning several issue areas), the set of votes where Konfederacja — and
-sometimes the far left — breaks from the KO–PiS mainstream. Not a clean economic axis.
+only ~2 of 12 fall under an economic topic. The honest description: dim 2 is
+**dominated by the votes where Konfederacja (and occasionally other small clubs)
+breaks from the KO–PiS pattern**, spanning several unrelated issue areas. I do not
+attach an ideological label to it.
 
 > **Lesson:** the model recovers *geometry*; humans supply the *labels* — and the
 > labels are only defensible if read off the high-discrimination items, not the party
@@ -269,7 +271,7 @@ one-dimensional with a faint second dimension.
 
 A static site (no backend) presents the estimates: a beeswarm of MPs colored by
 club, per-MP profiles (position ± CI, rank, turnout, party loyalty, a chamber
-distribution histogram), and per-vote **ideological breakdowns** — for contested
+distribution histogram), and per-vote **breakdowns** — for contested
 votes the model probability heatmap $\Phi(\beta x-\alpha)$ with the cutting point
 $x^*=\alpha/\beta$ (à la Voteview), empirical otherwise.
 

@@ -50,7 +50,7 @@ def main():
         topic = (vote_meta[j].get("topic") or vote_meta[j].get("title") or "")[:70]
         print(f"{b1[j]:+.1f} {b2[j]:+.2f} {angle[j]:.0f}  {rates}  {topic}")
 
-    # Summary: correlation of dim-2 club position with a left-right economic guess
+    # Summary: dim-2 club positions
     print("\n--- Club position on dim 2 (sorted) ---")
     x = d["x"]; x_mean = x.reshape(-1, x.shape[2], x.shape[3]).mean(0)
     for c in sorted(set(clubs), key=lambda c: np.nanmean(x_mean[clubs == c, 1])):

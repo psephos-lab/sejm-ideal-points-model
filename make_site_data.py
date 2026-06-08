@@ -6,7 +6,7 @@ Enriches each MP with stats computed from the roll-call matrix:
   - votes    : number of contested votes cast (turnout numerator)
   - turnout  : fraction of contested votes cast
   - loyalty  : fraction of cast votes agreeing with the MP's club majority
-  - rank     : 1-based position on the left->right axis (1 = most left)
+  - rank     : 1-based position on the main axis (1 = one pole)
   - club_rank: 1-based position within own club
 """
 
@@ -101,8 +101,9 @@ def main():
             "method": "Bayesowski model przestrzenny (2-parametrowy IRT, probit), "
                       "estymacja MCMC — sampler Gibbsa z augmentacją Alberta-Chiba",
             "source": "api.sejm.gov.pl (głosowania imienne)",
-            "note": "Oś to główny wymiar głosowań (rząd–opozycja, układa się jak "
-                    "lewica–prawica). Dodatnie = prawa strona osi. Skala: SD=1.",
+            "note": "Główna oś podziału odtworzona z głosowań imiennych (bez etykiet "
+                    "ideologicznych). Może odpowiadać podziałowi rząd–opozycja. "
+                    "Znak (±) jest umowny (zakotwiczony). Skala: SD=1.",
         },
         "clubs": club_list,
         "mps": mps,

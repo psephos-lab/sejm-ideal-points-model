@@ -56,7 +56,7 @@ def plot_ideal_points(x_flat, mp_ids, mp_info, save_path=None):
     patches = [mpatches.Patch(color=_club_color(c), label=c) for c in seen]
     ax.legend(handles=patches, loc="upper left", fontsize=8, framealpha=0.9, ncol=2)
 
-    ax.set_xlabel("Punkt idealny (dodatni = prawica)", fontsize=11)
+    ax.set_xlabel("Punkt idealny — główna oś podziału", fontsize=11)
     ax.set_yticks([])
     ax.set_title("Punkty idealne posłów — Sejm X kadencji\n(średnia a posteriori ± 90% CI)", fontsize=12)
     ax.axvline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
@@ -103,7 +103,7 @@ def plot_trace(x_chains, mp_ids, mp_info, save_path=None, n_show=4):
     """Trace plot of a few representative MPs' ideal points across chains."""
     n_chains, n_draws, n = x_chains.shape
     x_mean = x_chains.reshape(-1, n).mean(0)
-    # pick MPs spanning the axis: most-left, most-right, and two in between
+    # pick MPs spanning the axis (the extremes and two in between)
     order = np.argsort(x_mean)
     picks = [order[0], order[n // 3], order[2 * n // 3], order[-1]][:n_show]
 

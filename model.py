@@ -27,7 +27,7 @@ Model (logit link — numerically equivalent to probit, more stable in JAX):
     - Translation and scale fixed by N(0,1) prior on x.
     - Reflection (sign flip of x and beta simultaneously) is NOT fixed by the
       symmetric prior — resolved post-hoc by flipping so that the PiS centroid
-      is positive (right-wing = positive axis convention).
+      is positive (anchor MP placed at the positive pole).
 """
 
 import os
@@ -50,7 +50,7 @@ def ideal_point_model(Y_obs: jnp.ndarray, mask: jnp.ndarray,
     mask  : (n_mps, n_votes) bool  — True where vote was observed
     anchor_idx : index of an MP whose ideal point is constrained positive, to break
                  the reflection symmetry during sampling (fixes orientation across
-                 chains so R-hat is meaningful). Should be a clear right-wing MP.
+                 chains so R-hat is meaningful). A high-turnout PiS MP is used.
 
     Discrimination scale uses HalfNormal (light tail) NOT HalfCauchy: with perfect
     party-line votes (latent separation), the heavy Cauchy tail lets sigma_beta

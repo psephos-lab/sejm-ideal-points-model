@@ -173,7 +173,7 @@ def target_rotate(draws_x, draws_b, x_target):
 def fix_signs(draws_x, draws_b, anchor_idx, dim2_ref_idx=None):
     """
     Fix reflection per dimension by convention:
-      dim 1: anchor MP (e.g. a PiS hardliner) has positive coordinate.
+      dim 1: anchor MP (a reference MP) has positive coordinate.
       dim 2+: the MP with largest |coord| on that dim is positive (stable convention),
               or a supplied reference MP if given.
     """
