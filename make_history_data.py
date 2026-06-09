@@ -9,17 +9,22 @@ Export per-MP voting history data for the site:
                         richer 4-state re-fetch is available.)
 """
 
+import argparse
 import json
 import os
 import numpy as np
 from fetch_data import fetch_rollcall
 
-OUT_VOTES = "docs/votes.json"
-OUT_MP = "docs/mp_votes.json"
-
 
 def main():
-    data = fetch_rollcall(verbose=False)          # UNFILTERED: full chronological set
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--term", default="term10", help="term10 or term9")
+    args = ap.parse_args()
+    tag = "" if args.term == "term10" else f"_{args.term}"
+    OUT_VOTES = f"docs/votes{tag}.json"
+    OUT_MP = f"docs/mp_votes{tag}.json"
+
+    data = fetch_rollcall(term=args.term, verbose=False)   # UNFILTERED: full chronological set
     Y, V, mp_ids, mp_info, vote_meta = (data["Y"], data["V"], data["mp_ids"],
                                         data["mp_info"], data["vote_meta"])
     n, m = Y.shape

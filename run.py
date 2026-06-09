@@ -34,13 +34,15 @@ def main():
     p.add_argument("--sigma-beta", type=float, default=2.0)
     p.add_argument("--sigma-alpha", type=float, default=2.5)
     p.add_argument("--unanimity-threshold", type=float, default=0.95)
+    p.add_argument("--term", default="term10", help="Sejm term, e.g. term10 or term9")
     args = p.parse_args()
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
+    tag = "" if args.term == "term10" else f"_{args.term}"   # term10 keeps default filenames
 
     # --- Data ---
-    print("=== Loading data ===")
-    data = filter_rollcall(fetch_rollcall(verbose=True),
+    print(f"=== Loading data ({args.term}) ===")
+    data = filter_rollcall(fetch_rollcall(term=args.term, verbose=True),
                            unanimity_threshold=args.unanimity_threshold)
     Y, mp_ids, mp_info = data["Y"], data["mp_ids"], data["mp_info"]
     obs_rate = (~np.isnan(Y)).mean()
@@ -80,7 +82,7 @@ def main():
 
     # --- Save raw draws ---
     np.savez_compressed(
-        os.path.join(RESULTS_DIR, "draws.npz"),
+        os.path.join(RESULTS_DIR, f"draws{tag}.npz"),
         x=out["x"], beta=out["beta"], alpha=out["alpha"],
         mp_ids=np.array(mp_ids),
     )
@@ -98,22 +100,22 @@ def main():
         "x_hi90": np.percentile(x_flat, 95, axis=0),
         "rhat": rhat,
     }).sort_values("x_mean")
-    est.to_csv(os.path.join(RESULTS_DIR, "ideal_points.csv"), index=False)
-    print(f"\nSaved per-MP estimates to {RESULTS_DIR}/ideal_points.csv")
+    est.to_csv(os.path.join(RESULTS_DIR, f"ideal_points{tag}.csv"), index=False)
+    print(f"\nSaved per-MP estimates to {RESULTS_DIR}/ideal_points{tag}.csv")
 
-    # --- Validation: club ordering ---
-    print("\n--- Mean ideal point by club (left → right) ---")
+    # --- Validation: club ordering on the main axis ---
+    print("\n--- Mean position by club (along the main axis) ---")
     by_club = est.groupby("club")["x_mean"].agg(["mean", "count"]).sort_values("mean")
     for club, row in by_club.iterrows():
         print(f"  {club:18s} {row['mean']:+.2f}  (n={int(row['count'])})")
 
     # --- Plots ---
     plot_ideal_points(x_flat, mp_ids, mp_info,
-                      save_path=os.path.join(RESULTS_DIR, "ideal_points.png"))
+                      save_path=os.path.join(RESULTS_DIR, f"ideal_points{tag}.png"))
     plot_club_distributions(x_flat, mp_ids, mp_info,
-                            save_path=os.path.join(RESULTS_DIR, "club_distributions.png"))
+                            save_path=os.path.join(RESULTS_DIR, f"club_distributions{tag}.png"))
     plot_trace(out["x"], mp_ids, mp_info,
-               save_path=os.path.join(RESULTS_DIR, "trace.png"))
+               save_path=os.path.join(RESULTS_DIR, f"trace{tag}.png"))
 
     print("\nDone.")
 

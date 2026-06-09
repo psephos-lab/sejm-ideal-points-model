@@ -6,20 +6,25 @@ them up against the history votes.
 Model: P(za) = Phi(beta_j * x_i - alpha_j); model cutting point x* = alpha_j/beta_j.
 """
 
+import argparse
 import json
 import numpy as np
 from fetch_data import fetch_rollcall, filter_rollcall
 
-OUT = "docs/model_params.json"
-
 
 def main():
-    d = np.load("results/draws.npz", allow_pickle=True)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--term", default="term10", help="term10 or term9")
+    args = ap.parse_args()
+    tag = "" if args.term == "term10" else f"_{args.term}"
+    OUT = f"docs/model_params{tag}.json"
+
+    d = np.load(f"results/draws{tag}.npz", allow_pickle=True)
     beta = d["beta"].reshape(-1, d["beta"].shape[-1]).mean(0)    # (n_votes,)
     alpha = d["alpha"].reshape(-1, d["alpha"].shape[-1]).mean(0)
 
     # filtered vote_meta is in the same column order as beta/alpha (deterministic)
-    vm = filter_rollcall(fetch_rollcall(verbose=False))["vote_meta"]
+    vm = filter_rollcall(fetch_rollcall(term=args.term, verbose=False))["vote_meta"]
     assert len(vm) == len(beta), f"mismatch {len(vm)} vs {len(beta)}"
 
     params = {

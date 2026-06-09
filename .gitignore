@@ -8,8 +8,7 @@ __pycache__/
 docs/
 
 # large, regenerable MCMC outputs (rerun the pipeline to recreate)
-results/draws.npz
-results/draws_2d.npz
+results/draws*.npz
 results/*.log
 
 # old (buggy) roll-call cache; term10_rollcall_v2.pkl is the input snapshot

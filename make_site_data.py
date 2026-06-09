@@ -10,6 +10,7 @@ Enriches each MP with stats computed from the roll-call matrix:
   - club_rank: 1-based position within own club
 """
 
+import argparse
 import json
 import datetime
 import os
@@ -18,13 +19,17 @@ import pandas as pd
 
 from fetch_data import fetch_rollcall, filter_rollcall
 
-CSV = "results/ideal_points.csv"
-OUT = "docs/ideal_points.json"
+TERM_INFO = {
+    "term10": {"title": "Punkty idealne posłów — Sejm X kadencji",
+               "term": "X kadencja (od XI 2023)"},
+    "term9":  {"title": "Punkty idealne posłów — Sejm IX kadencji",
+               "term": "IX kadencja (2019–2023)"},
+}
 
 
-def compute_behaviour(df):
+def compute_behaviour(df, term="term10"):
     """Returns dicts mp_id -> votes, turnout, loyalty using the filtered matrix."""
-    data = filter_rollcall(fetch_rollcall(verbose=False))
+    data = filter_rollcall(fetch_rollcall(term=term, verbose=False))
     Y, mp_ids, mp_info = data["Y"], data["mp_ids"], data["mp_info"]
     n, m = Y.shape
     mask = ~np.isnan(Y)
@@ -59,8 +64,17 @@ def compute_behaviour(df):
 
 
 def main():
-    df = pd.read_csv(CSV).sort_values("x_mean").reset_index(drop=True)
-    behaviour, n_votes = compute_behaviour(df)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--term", default="term10", help="term10 or term9")
+    args = ap.parse_args()
+    term = args.term
+    tag = "" if term == "term10" else f"_{term}"
+    csv_path = f"results/ideal_points{tag}.csv"
+    out_path = f"docs/ideal_points{tag}.json"
+    info = TERM_INFO.get(term, {"title": f"Punkty idealne — {term}", "term": term})
+
+    df = pd.read_csv(csv_path).sort_values("x_mean").reset_index(drop=True)
+    behaviour, n_votes = compute_behaviour(df, term)
 
     df["rank"] = np.arange(1, len(df) + 1)
     df["club_rank"] = df.groupby("club")["x_mean"].rank(method="first").astype(int)
@@ -93,8 +107,8 @@ def main():
 
     out = {
         "meta": {
-            "title": "Punkty idealne posłów — Sejm X kadencji",
-            "term": "X kadencja (od XI 2023)",
+            "title": info["title"],
+            "term": info["term"],
             "n_mps": len(mps),
             "n_votes": n_votes,
             "generated": datetime.date.today().isoformat(),
@@ -110,9 +124,9 @@ def main():
     }
 
     os.makedirs("docs", exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"Wrote {OUT}: {len(mps)} MPs, {len(club_list)} clubs, {n_votes} votes")
+    print(f"Wrote {out_path}: {len(mps)} MPs, {len(club_list)} clubs, {n_votes} votes")
 
 
 if __name__ == "__main__":
