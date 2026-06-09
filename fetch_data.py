@@ -13,18 +13,28 @@ import os
 import pickle
 import time
 import requests
+from requests.adapters import HTTPAdapter
 import numpy as np
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 
 API_BASE = "https://api.sejm.gov.pl/sejm"
 CACHE_DIR = "data"
 CACHE_FILE = os.path.join(CACHE_DIR, "term10_rollcall_v2.pkl")  # v2: correct enumeration
 
+# Shared session with an enlarged connection pool. The default urllib3 pool caps at
+# 10 connections, which would throttle parallel fetching to ~10 concurrent regardless
+# of the worker count. Size the pool to comfortably cover the detail-fetch workers.
+_SESSION = requests.Session()
+_adapter = HTTPAdapter(pool_connections=32, pool_maxsize=32)
+_SESSION.mount("https://", _adapter)
+_SESSION.mount("http://", _adapter)
+
 
 def _get(url: str, retries: int = 3) -> dict | list:
     for attempt in range(retries):
         try:
-            r = requests.get(url, timeout=15)
+            r = _SESSION.get(url, timeout=15)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -33,26 +43,26 @@ def _get(url: str, retries: int = 3) -> dict | list:
             time.sleep(2 ** attempt)
 
 
-def _get_or_none(url: str):
-    """GET that returns None on 404 (no retry) — for probing voting numbers."""
-    try:
-        r = requests.get(url, timeout=15)
-        if r.status_code == 404:
-            return None
-        r.raise_for_status()
-        return r.json()
-    except requests.HTTPError:
-        return None
-    except Exception:
-        # one transient retry
+def _fetch_json(url: str, timeout: int = 25, retries: int = 5):
+    """
+    GET JSON for parallel fetching.
+      - returns None on a genuine 404 (no such voting)
+      - retries transient failures (timeout / connection / 429 / 5xx) with backoff
+      - raises RuntimeError only after all retries are exhausted (so gaps are loud,
+        never silently dropped)
+    """
+    last = None
+    for attempt in range(retries):
         try:
-            r = requests.get(url, timeout=15)
+            r = _SESSION.get(url, timeout=timeout)
             if r.status_code == 404:
                 return None
             r.raise_for_status()
             return r.json()
-        except Exception:
-            return None
+        except Exception as e:  # noqa: BLE001 — transient; retry with backoff
+            last = e
+            time.sleep(min(2 ** attempt, 8))
+    raise RuntimeError(f"failed after {retries} attempts: {url} ({last})")
 
 
 def fetch_mps(term: str = "term10") -> pd.DataFrame:
@@ -78,11 +88,12 @@ def fetch_rollcall(term: str = "term10", verbose: bool = True) -> dict:
       vote_meta — list of dicts with title/description per vote
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = os.path.join(CACHE_DIR, f"{term}_rollcall_v2.pkl")
 
-    if os.path.exists(CACHE_FILE):
+    if os.path.exists(cache_file):
         if verbose:
-            print(f"Loading cached data from {CACHE_FILE}")
-        with open(CACHE_FILE, "rb") as f:
+            print(f"Loading cached data from {cache_file}")
+        with open(cache_file, "rb") as f:
             return pickle.load(f)
 
     if verbose:
@@ -98,58 +109,71 @@ def fetch_rollcall(term: str = "term10", verbose: bool = True) -> dict:
     if verbose:
         print(f"  {len(proceedings)} proceedings (from {len(sittings)} sitting-days)")
 
-    # Enumerate each proceeding by probing voting numbers until a run of 404s.
-    # The per-day `votingsNum` field is unreliable: multi-day proceedings repeat in
-    # the list and undercount the per-proceeding voting numbering — which previously
-    # caused BOTH duplicated and missing votes. Probing (p, 1..N) is authoritative.
-    MAX_GAP, HARD_CAP = 10, 400
+    # --- Enumerate votes via the per-proceeding LIST endpoint (parallel) -----------
+    # `votings/{term}/{p}` returns every voting of proceeding p with full metadata
+    # and an exact `votingNumber` — but WITHOUT the per-MP `votes` array. This is the
+    # authoritative enumeration (no probe-until-404, no multi-day numbering bug).
+    # We then fetch the per-MP detail endpoints `votings/{term}/{p}/{n}` IN PARALLEL.
     CODE = {"YES": 1, "NO": 0, "ABSTAIN": 2}        # else -> 3 (absent / no record)
+    N_LIST_WORKERS, N_DETAIL_WORKERS = 12, 24
 
-    vote_ids, vote_meta, columns, vcolumns = [], [], [], []
+    def _list_proceeding(p):
+        lst = _fetch_json(f"{API_BASE}/{term}/votings/{p}") or []
+        # keep only electronic votes; carry their exact voting number
+        return [(p, v["votingNumber"]) for v in lst if v.get("kind") == "ELECTRONIC"]
+
+    with ThreadPoolExecutor(max_workers=N_LIST_WORKERS) as ex:
+        candidates = [pn for chunk in ex.map(_list_proceeding, proceedings) for pn in chunk]
+    candidates.sort()                                # chronological: (proceeding, voting_num)
+    if verbose:
+        print(f"  {len(candidates)} electronic votes to fetch (parallel)...", flush=True)
+
+    def _detail(pn):
+        p, n = pn
+        return pn, _fetch_json(f"{API_BASE}/{term}/votings/{p}/{n}")
+
+    details = {}
     done = 0
-    for p in proceedings:
-        consec, v_num = 0, 0
-        while consec < MAX_GAP and v_num < HARD_CAP:
-            v_num += 1
-            detail = _get_or_none(f"{API_BASE}/{term}/votings/{p}/{v_num}")
-            if detail is None:
-                consec += 1
-                continue
-            consec = 0
-            if detail.get("kind") != "ELECTRONIC":
-                continue
-
-            col = np.full(len(mp_ids), np.nan, dtype=np.float32)
-            vcol = np.full(len(mp_ids), 3, dtype=np.int8)      # 3 = absent / no record
-            for v in detail.get("votes", []):
-                idx = mp_index.get(v["MP"])
-                if idx is None:
-                    continue
-                vs = v.get("vote", "")
-                vcol[idx] = CODE.get(vs, 3)
-                if vs == "YES":
-                    col[idx] = 1.0
-                elif vs == "NO":
-                    col[idx] = 0.0
-                # ABSTAIN / ABSENT -> NaN in Y (model), but recorded in V (history)
-
-            vote_ids.append((p, v_num))
-            vote_meta.append({
-                "sitting": p,
-                "voting_num": v_num,
-                "date": detail.get("date", ""),
-                "title": detail.get("title", ""),
-                "topic": detail.get("topic", ""),
-                "yes": detail.get("yes", 0),
-                "no": detail.get("no", 0),
-                "abstain": detail.get("abstain", 0),
-            })
-            columns.append(col)
-            vcolumns.append(vcol)
-
+    with ThreadPoolExecutor(max_workers=N_DETAIL_WORKERS) as ex:
+        for pn, detail in ex.map(_detail, candidates):
+            if detail is not None:
+                details[pn] = detail
             done += 1
-            if verbose and done % 200 == 0:
-                print(f"  fetched {done} votes (proceeding {p})", flush=True)
+            if verbose and done % 500 == 0:
+                print(f"  fetched {done}/{len(candidates)}", flush=True)
+
+    # --- Assemble matrices in chronological order ----------------------------------
+    vote_ids, vote_meta, columns, vcolumns = [], [], [], []
+    for pn in sorted(details):                        # (proceeding, voting_num)
+        p, v_num = pn
+        detail = details[pn]
+        col = np.full(len(mp_ids), np.nan, dtype=np.float32)
+        vcol = np.full(len(mp_ids), 3, dtype=np.int8)      # 3 = absent / no record
+        for v in detail.get("votes", []):
+            idx = mp_index.get(v["MP"])
+            if idx is None:
+                continue
+            vs = v.get("vote", "")
+            vcol[idx] = CODE.get(vs, 3)
+            if vs == "YES":
+                col[idx] = 1.0
+            elif vs == "NO":
+                col[idx] = 0.0
+            # ABSTAIN / ABSENT -> NaN in Y (model), but recorded in V (history)
+
+        vote_ids.append((p, v_num))
+        vote_meta.append({
+            "sitting": p,
+            "voting_num": v_num,
+            "date": detail.get("date", ""),
+            "title": detail.get("title", ""),
+            "topic": detail.get("topic", ""),
+            "yes": detail.get("yes", 0),
+            "no": detail.get("no", 0),
+            "abstain": detail.get("abstain", 0),
+        })
+        columns.append(col)
+        vcolumns.append(vcol)
 
     Y = np.stack(columns, axis=1) if columns else np.empty((len(mp_ids), 0), dtype=np.float32)
     V = np.stack(vcolumns, axis=1) if vcolumns else np.empty((len(mp_ids), 0), dtype=np.int8)
@@ -163,10 +187,10 @@ def fetch_rollcall(term: str = "term10", verbose: bool = True) -> dict:
         "vote_meta": vote_meta,
     }
 
-    with open(CACHE_FILE, "wb") as f:
+    with open(cache_file, "wb") as f:
         pickle.dump(result, f)
     if verbose:
-        print(f"Saved to {CACHE_FILE}. Matrix shape: {Y.shape}")
+        print(f"Saved to {cache_file}. Matrix shape: {Y.shape}")
 
     return result
 
