@@ -64,14 +64,25 @@ def gibbs_ideal_point(
     seed: int = 0,
     standardize: bool = True,
     verbose: bool = True,
+    init: dict | None = None,
+    store_vote_params: bool = True,
 ) -> dict:
     """
     Run the Gibbs sampler.
 
+    init: optional {"x","beta","alpha"} to warm-start (continue) a chain from a
+          saved state. With num_warmup=0 this seamlessly extends a previous run
+          (the latent y* is resampled each sweep, so it need not be saved). Only
+          the starting point changes — the target posterior is identical.
+    store_vote_params: if False, skip the full (num_samples, n_votes) beta/alpha
+          draw arrays (memory-lean for long continuations) and return their
+          running posterior means as beta_mean / alpha_mean instead.
+
     Returns dict of posterior draws:
         x     (num_samples, n_mps)
-        beta  (num_samples, n_votes)
-        alpha (num_samples, n_votes)
+        beta  (num_samples, n_votes)        [only if store_vote_params]
+        alpha (num_samples, n_votes)        [only if store_vote_params]
+        beta_mean / alpha_mean (n_votes)    [only if not store_vote_params]
     """
     rng = np.random.default_rng(seed)
 
@@ -95,9 +106,23 @@ def gibbs_ideal_point(
     alpha = np.zeros(m)
     ystar = np.zeros((n, m))
 
+    # Warm start (continuation): override the random init with a saved sampler
+    # state. Only (x, beta, alpha) are needed; y* is resampled first each sweep.
+    if init is not None:
+        x = np.asarray(init["x"], dtype=np.float64).copy()
+        beta = np.asarray(init["beta"], dtype=np.float64).copy()
+        alpha = np.asarray(init["alpha"], dtype=np.float64).copy()
+        if x[anchor_idx] < 0:                  # sign-flip preserves eta = beta*x - alpha
+            x, beta = -x, -beta
+
     draws_x = np.empty((num_samples, n))
-    draws_beta = np.empty((num_samples, m))
-    draws_alpha = np.empty((num_samples, m))
+    if store_vote_params:
+        draws_beta = np.empty((num_samples, m))
+        draws_alpha = np.empty((num_samples, m))
+    else:                                      # memory-lean: running means only
+        beta_sum = np.zeros(m)
+        alpha_sum = np.zeros(m)
+        n_kept = 0
 
     total = num_warmup + num_samples * thin
     for it in range(total):
@@ -168,13 +193,27 @@ def gibbs_ideal_point(
         if it >= num_warmup and (it - num_warmup) % thin == 0:
             k = (it - num_warmup) // thin
             draws_x[k] = x
-            draws_beta[k] = beta
-            draws_alpha[k] = alpha
+            if store_vote_params:
+                draws_beta[k] = beta
+                draws_alpha[k] = alpha
+            else:
+                beta_sum += beta
+                alpha_sum += alpha
+                n_kept += 1
 
         if verbose and (it + 1) % 200 == 0:
             print(f"  iter {it+1}/{total}", flush=True)
 
-    return {"x": draws_x, "beta": draws_beta, "alpha": draws_alpha}
+    # always expose the final sampler state, so a lean run is still a continuable
+    # checkpoint (warm-start the next extension from x_last/beta_last/alpha_last)
+    out = {"x": draws_x, "x_last": x.copy(), "beta_last": beta.copy(), "alpha_last": alpha.copy()}
+    if store_vote_params:
+        out["beta"] = draws_beta
+        out["alpha"] = draws_alpha
+    else:
+        out["beta_mean"] = beta_sum / max(n_kept, 1)
+        out["alpha_mean"] = alpha_sum / max(n_kept, 1)
+    return out
 
 
 def _trunc_pos(mean: float, sd: float, rng: np.random.Generator,
@@ -233,28 +272,43 @@ def run_multichain_parallel(
     thin: int = 1,
     base_seed: int = 0,
     n_jobs: int | None = None,
+    inits: list | None = None,
     **kwargs,
 ) -> dict:
     """
     Run independent chains concurrently (one process per chain) and stack into
     (chains, draws, ...) arrays. Exploits chain-level parallelism — the part of
     MCMC that IS embarrassingly parallel (the within-chain sequence is not).
+
+    inits: optional list (length num_chains) of {"x","beta","alpha"} warm-start
+           states — pass together with num_warmup=0 to continue a previous run.
     """
     from concurrent.futures import ProcessPoolExecutor
 
     n_jobs = n_jobs or num_chains
     kw = dict(num_warmup=num_warmup, num_samples=num_samples, thin=thin, **kwargs)
-    tasks = [(Y_raw, anchor_idx, base_seed + c, kw) for c in range(num_chains)]
+    tasks = []
+    for c in range(num_chains):
+        kw_c = dict(kw)
+        if inits is not None:
+            kw_c["init"] = inits[c]
+        tasks.append((Y_raw, anchor_idx, base_seed + c, kw_c))
 
     print(f"Running {num_chains} chains across {n_jobs} processes...")
     with ProcessPoolExecutor(max_workers=n_jobs) as ex:
         results = list(ex.map(_chain_worker, tasks))
 
-    return {
-        "x": np.stack([r["x"] for r in results]),
-        "beta": np.stack([r["beta"] for r in results]),
-        "alpha": np.stack([r["alpha"] for r in results]),
-    }
+    out = {"x": np.stack([r["x"] for r in results])}
+    for key in ("x_last", "beta_last", "alpha_last"):      # per-chain final state
+        if all(key in r for r in results):
+            out[key] = np.stack([r[key] for r in results])
+    if all("beta" in r for r in results):
+        out["beta"] = np.stack([r["beta"] for r in results])
+        out["alpha"] = np.stack([r["alpha"] for r in results])
+    if all("beta_mean" in r for r in results):
+        out["beta_mean"] = np.stack([r["beta_mean"] for r in results])
+        out["alpha_mean"] = np.stack([r["alpha_mean"] for r in results])
+    return out
 
 
 if __name__ == "__main__":
