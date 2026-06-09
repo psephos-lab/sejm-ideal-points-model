@@ -110,9 +110,11 @@ def main():
         print(f"  {club:18s} {row['mean']:+.2f}  (n={int(row['count'])})")
 
     # --- Plots ---
-    plot_ideal_points(x_flat, mp_ids, mp_info,
+    term_label = {"term10": "X kadencji", "term9": "IX kadencji",
+                  "term8": "VIII kadencji", "term7": "VII kadencji"}.get(args.term, args.term)
+    plot_ideal_points(x_flat, mp_ids, mp_info, term_label=term_label,
                       save_path=os.path.join(RESULTS_DIR, f"ideal_points{tag}.png"))
-    plot_club_distributions(x_flat, mp_ids, mp_info,
+    plot_club_distributions(x_flat, mp_ids, mp_info, term_label=term_label,
                             save_path=os.path.join(RESULTS_DIR, f"club_distributions{tag}.png"))
     plot_trace(out["x"], mp_ids, mp_info,
                save_path=os.path.join(RESULTS_DIR, f"trace{tag}.png"))

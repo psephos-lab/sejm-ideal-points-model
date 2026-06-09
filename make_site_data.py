@@ -24,6 +24,10 @@ TERM_INFO = {
                "term": "X kadencja (od XI 2023)"},
     "term9":  {"title": "Punkty idealne posłów — Sejm IX kadencji",
                "term": "IX kadencja (2019–2023)"},
+    "term8":  {"title": "Punkty idealne posłów — Sejm VIII kadencji",
+               "term": "VIII kadencja (2015–2019)"},
+    "term7":  {"title": "Punkty idealne posłów — Sejm VII kadencji",
+               "term": "VII kadencja (2011–2015)"},
 }
 
 
@@ -74,6 +78,7 @@ def main():
     info = TERM_INFO.get(term, {"title": f"Punkty idealne — {term}", "term": term})
 
     df = pd.read_csv(csv_path).sort_values("x_mean").reset_index(drop=True)
+    df["club"] = df["club"].fillna("niez.")   # MPs with no club label -> unaffiliated
     behaviour, n_votes = compute_behaviour(df, term)
 
     df["rank"] = np.arange(1, len(df) + 1)

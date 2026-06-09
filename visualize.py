@@ -24,6 +24,26 @@ CLUB_COLORS = {
     "Centrum":         "#1DACD6",  # light blue
     "Demokracja":      "#00BFA5",  # teal
     "niez.":           "#AAAAAA",  # gray (independents)
+    # --- historical terms (VII–IX): same family hues as the X-term palette ---
+    "PO":              "#F5821F",  # Platforma — same camp as KO (orange)
+    "PO-KO":           "#F5821F",  # Platforma–Koalicja Obywatelska (orange)
+    "PSL":             "#00A550",  # PSL — green
+    "PSL-KP":          "#00A550",  # PSL / Koalicja Polska — green
+    "PSL-UED":         "#4CAF50",  # PSL-UED — lighter green
+    "KP":              "#00A550",  # Koalicja Polska — green
+    "Kukiz15":         "#16A085",  # Kukiz'15 — teal
+    "SLD":             "#E31E24",  # left — red
+    "LD":              "#C0398B",  # magenta
+    "PS":              "#5D6D7E",  # slate
+    "UPR":             "#5D3A9B",  # purple
+    "PP":              "#A0522D",  # brown
+    "TERAZ!":          "#00ACC1",  # cyan
+    "WiS":             "#9C27B0",  # purple-magenta
+    "ZP":              "#2C5AA0",  # blue variant
+    "RP":              "#C2185B",  # Ruch Palikota — crimson
+    "TR":              "#AD1457",  # Twój Ruch — crimson variant
+    "BC":              "#795548",  # brown
+    "KPSP":            "#8D6E63",  # brown variant
 }
 DEFAULT_COLOR = "#888888"
 
@@ -36,7 +56,7 @@ def _clubs_for(mp_ids: list, mp_info: pd.DataFrame) -> list:
     return [mp_info.loc[mid, "club"] if mid in mp_info.index else "" for mid in mp_ids]
 
 
-def plot_ideal_points(x_flat, mp_ids, mp_info, save_path=None):
+def plot_ideal_points(x_flat, mp_ids, mp_info, save_path=None, term_label="X kadencji"):
     """Strip plot of posterior mean ideal points (±90% CI), colored by club."""
     x_mean = x_flat.mean(axis=0)
     x_lo = np.percentile(x_flat, 5, axis=0)
@@ -58,7 +78,7 @@ def plot_ideal_points(x_flat, mp_ids, mp_info, save_path=None):
 
     ax.set_xlabel("Punkt idealny — główna oś podziału", fontsize=11)
     ax.set_yticks([])
-    ax.set_title("Punkty idealne posłów — Sejm X kadencji\n(średnia a posteriori ± 90% CI)", fontsize=12)
+    ax.set_title(f"Punkty idealne posłów — Sejm {term_label}\n(średnia a posteriori ± 90% CI)", fontsize=12)
     ax.axvline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
     plt.tight_layout()
     if save_path:
@@ -68,7 +88,7 @@ def plot_ideal_points(x_flat, mp_ids, mp_info, save_path=None):
     plt.close()
 
 
-def plot_club_distributions(x_flat, mp_ids, mp_info, save_path=None):
+def plot_club_distributions(x_flat, mp_ids, mp_info, save_path=None, term_label="X kadencji"):
     """Violin plot of per-MP posterior means grouped by club."""
     x_mean = x_flat.mean(axis=0)
     clubs = _clubs_for(mp_ids, mp_info)
@@ -90,7 +110,7 @@ def plot_club_distributions(x_flat, mp_ids, mp_info, save_path=None):
     ax.set_xticklabels(club_order, fontsize=9, rotation=30, ha="right")
     ax.axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
     ax.set_ylabel("Punkt idealny (średnia a posteriori)")
-    ax.set_title("Rozkład punktów idealnych wg klubu — Sejm X kadencji")
+    ax.set_title(f"Rozkład punktów idealnych wg klubu — Sejm {term_label}")
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150); print(f"Saved: {save_path}")
