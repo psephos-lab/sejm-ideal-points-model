@@ -56,7 +56,16 @@ def _batched_mvn(A, rhs, rng):
 def gibbs_ideal_point_nd(
     Y_raw, D=2, num_warmup=1000, num_samples=2000, thin=1,
     sigma_beta=2.0, sigma_alpha=2.5, seed=0, standardize=True, verbose=True,
+    init=None, store_vote_params=True,
 ):
+    """
+    init: optional {"x":(n,D), "beta":(m,D), "alpha":(m,)} to warm-start the chain
+          from a saved final state (continuation; use num_warmup=0). Default None
+          -> cold start (X[:,0] from standardized YES-rate, other dims small random).
+    store_vote_params: if False, do not materialise the (m x D) beta / (m,) alpha
+          draw arrays (memory-lean for long continuations); x draws are always kept,
+          and the final (x, beta, alpha) state is always returned for warm-starting.
+    """
     rng = np.random.default_rng(seed)
     mask = ~np.isnan(Y_raw)
     Y = np.where(mask, Y_raw, 0).astype(np.int8)
@@ -67,17 +76,22 @@ def gibbs_ideal_point_nd(
     pa = 1.0 / sigma_alpha ** 2
     P0 = np.diag([pb] * D + [pa])                # (D+1, D+1) prior precision
 
-    # --- init: X[:,0] from standardized YES-rate, other dims small random ---
-    yes_rate = np.array([Y[i, mask[i]].mean() if mask[i].any() else 0.5
-                         for i in range(n)])
-    X = rng.normal(0, 0.3, size=(n, D))
-    X[:, 0] = (yes_rate - yes_rate.mean()) / (yes_rate.std() + 1e-9)
-    B = rng.normal(0, 0.5, size=(m, D))
-    alpha = np.zeros(m)
+    if init is not None:
+        X = np.array(init["x"], dtype=np.float64).copy()
+        B = np.array(init["beta"], dtype=np.float64).copy()
+        alpha = np.array(init["alpha"], dtype=np.float64).copy()
+    else:
+        # --- cold start: X[:,0] from standardized YES-rate, other dims small random ---
+        yes_rate = np.array([Y[i, mask[i]].mean() if mask[i].any() else 0.5
+                             for i in range(n)])
+        X = rng.normal(0, 0.3, size=(n, D))
+        X[:, 0] = (yes_rate - yes_rate.mean()) / (yes_rate.std() + 1e-9)
+        B = rng.normal(0, 0.5, size=(m, D))
+        alpha = np.zeros(m)
 
     dx = np.empty((num_samples, n, D))
-    db = np.empty((num_samples, m, D))
-    da = np.empty((num_samples, m))
+    db = np.empty((num_samples, m, D)) if store_vote_params else None
+    da = np.empty((num_samples, m)) if store_vote_params else None
 
     total = num_warmup + num_samples * thin
     for it in range(total):
@@ -114,12 +128,15 @@ def gibbs_ideal_point_nd(
 
         if it >= num_warmup and (it - num_warmup) % thin == 0:
             k = (it - num_warmup) // thin
-            dx[k] = X; db[k] = B; da[k] = alpha
+            dx[k] = X
+            if store_vote_params:
+                db[k] = B; da[k] = alpha
 
         if verbose and (it + 1) % 200 == 0:
             print(f"  iter {it+1}/{total}", flush=True)
 
-    return {"x": dx, "beta": db, "alpha": da}
+    return {"x": dx, "beta": db, "alpha": da,
+            "x_last": X, "beta_last": B, "alpha_last": alpha}
 
 
 # ---------- Post-hoc identification: Procrustes alignment ----------
@@ -197,19 +214,37 @@ def _chain_worker_nd(args):
     return gibbs_ideal_point_nd(Y_raw, D=D, seed=seed, verbose=False, **kw)
 
 
-def run_multichain_nd(Y_raw, D=2, num_chains=4, n_jobs=None, base_seed=0, **kwargs):
-    """Run independent N-D chains in parallel (one process each)."""
+def run_multichain_nd(Y_raw, D=2, num_chains=4, n_jobs=None, base_seed=0,
+                      inits=None, **kwargs):
+    """Run independent N-D chains in parallel (one process each).
+
+    inits: optional list of per-chain warm-start dicts (len == num_chains); each
+           is passed to gibbs_ideal_point_nd(init=...). Use with num_warmup=0 to
+           continue saved chains. Always returns final per-chain state (x_last,
+           beta_last, alpha_last). beta/alpha draw arrays are present only when
+           store_vote_params (default True) was kept on.
+    """
     from concurrent.futures import ProcessPoolExecutor
     n_jobs = n_jobs or num_chains
-    tasks = [(Y_raw, D, base_seed + c, kwargs) for c in range(num_chains)]
+    tasks = []
+    for c in range(num_chains):
+        kw = dict(kwargs)
+        if inits is not None:
+            kw["init"] = inits[c]
+        tasks.append((Y_raw, D, base_seed + c, kw))
     print(f"Running {num_chains} {D}D chains across {n_jobs} processes...")
     with ProcessPoolExecutor(max_workers=n_jobs) as ex:
         res = list(ex.map(_chain_worker_nd, tasks))
-    return {
+    out = {
         "x": np.stack([r["x"] for r in res]),       # (C, draws, n, D)
-        "beta": np.stack([r["beta"] for r in res]),
-        "alpha": np.stack([r["alpha"] for r in res]),
+        "x_last": np.stack([r["x_last"] for r in res]),     # (C, n, D)
+        "beta_last": np.stack([r["beta_last"] for r in res]),
+        "alpha_last": np.stack([r["alpha_last"] for r in res]),
     }
+    if res[0]["beta"] is not None:
+        out["beta"] = np.stack([r["beta"] for r in res])
+        out["alpha"] = np.stack([r["alpha"] for r in res])
+    return out
 
 
 if __name__ == "__main__":

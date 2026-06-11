@@ -44,6 +44,14 @@ CLUB_COLORS = {
     "TR":              "#AD1457",  # Twój Ruch — crimson variant
     "BC":              "#795548",  # brown
     "KPSP":            "#8D6E63",  # brown variant
+    # --- V–VI kadencja (2005–2011) ---
+    "Samoobrona":      "#C9A227",  # gold
+    "LPR":             "#922B21",  # dark maroon
+    "RLN":             "#117864",  # dark teal
+    "Prawica":         "#7E5109",  # amber/olive
+    "SDPL":            "#CB4335",  # brick red (left splinter)
+    "PJN":             "#2471A3",  # steel blue
+    "Polska_Plus":     "#5499C7",  # light steel blue
 }
 DEFAULT_COLOR = "#888888"
 

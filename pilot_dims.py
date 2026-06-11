@@ -11,6 +11,7 @@ Three independent "does dim-d exist" checks + tau:
   (tau) ESS on aligned draws -> tau = sweeps / ESS, per dimension.
 """
 
+import argparse
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np
 import arviz as az
@@ -22,7 +23,16 @@ NW, NS, NC = 700, 1200, 4          # short pilots
 
 
 def main():
-    data = filter_rollcall(fetch_rollcall(verbose=False))
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--term", default="term10", help="e.g. term5, term6, …, term10")
+    args = ap.parse_args()
+    term = args.term
+
+    print(f"\n{'='*60}")
+    print(f"  PILOT DIMS  —  {term}")
+    print(f"{'='*60}")
+
+    data = filter_rollcall(fetch_rollcall(term=term, verbose=False))
     Y, mp_ids, mp_info = data["Y"], data["mp_ids"], data["mp_info"]
     mask = ~np.isnan(Y)
     Yint = np.where(mask, Y, 0.0)

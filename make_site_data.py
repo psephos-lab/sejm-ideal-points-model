@@ -28,6 +28,10 @@ TERM_INFO = {
                "term": "VIII kadencja (2015–2019)"},
     "term7":  {"title": "Punkty idealne posłów — Sejm VII kadencji",
                "term": "VII kadencja (2011–2015)"},
+    "term6":  {"title": "Punkty idealne posłów — Sejm VI kadencji",
+               "term": "VI kadencja (2007–2011)"},
+    "term5":  {"title": "Punkty idealne posłów — Sejm V kadencji",
+               "term": "V kadencja (2005–2007)"},
 }
 
 
