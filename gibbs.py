@@ -260,7 +260,10 @@ def run_multichain(
 def _chain_worker(args: tuple) -> dict:
     """Top-level worker (picklable) for one chain in a separate process."""
     Y_raw, anchor_idx, seed, kw = args
-    return gibbs_ideal_point(Y_raw, anchor_idx, seed=seed, verbose=False, **kw)
+    # Per-process chains default to quiet, but honour an explicit verbose in kw
+    # (kw may carry it when the caller passed verbose= to run_multichain_parallel).
+    kw = {"verbose": False, **kw}
+    return gibbs_ideal_point(Y_raw, anchor_idx, seed=seed, **kw)
 
 
 def run_multichain_parallel(

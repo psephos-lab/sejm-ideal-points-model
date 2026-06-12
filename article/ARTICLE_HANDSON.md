@@ -532,8 +532,6 @@ poke at:
   disagree on orientation — the reflection symmetry, live.
 - **Drop the standardization.** Set `standardize=False` and watch $\hat R$ for the
   scale degrade — §6.5, live.
-- **Go 2-D.** `run_2d.py` adds a second latent axis; recovering it needs extra
-  identification work (Procrustes alignment + a rotation onto this 1-D solution).
 
 The model is a few hundred lines of NumPy. Once you've read it once, it stops being
 a black box — and that was the whole point.
