@@ -7,10 +7,6 @@ Python that runs it**, lifted straight from a small public repo you can clone an
 execute in five minutes.
 
 > **The repo:** [`sejm-ideal-points-model-demo`](https://github.com/psephos-lab/sejm-ideal-points-model-demo).
-> Every code block below is a real excerpt from its `fetch_data.py`, `anchor.py`,
-> `gibbs.py`, or `run.py` — not pseudocode. Pure NumPy/SciPy; no jax, no PyMC, no
-> Stan. You'll clone and run it in §7. (Math uses `$…$`; on Medium, render
-> formulas as images.)
 
 By the end you will have run the whole thing on real votes and printed a
 left-to-right ordering of the Polish parliament that **no human labelled** — it
@@ -28,10 +24,9 @@ recently, **no public estimate of where individual MPs sit on a latent main axis
 of division** recovered from their votes.
 
 This project fills that gap for the Sejm, and the result is live here:
-**[psephos-lab.github.io/sejm-ideal-points-site](https://psephos-lab.github.io/sejm-ideal-points-site/)**
-— a beeswarm of every MP, six terms, colored by club. This article is the engine
-behind that map: we build the estimator end to end, so the picture stops being a
-black box.
+**[mapasejmu.org](https://mapasejmu.org)** — a beeswarm of every MP, six terms,
+colored by club. This article is the engine behind that map: we build the
+estimator end to end, so the picture stops being a black box.
 
 ---
 
@@ -345,14 +340,16 @@ $$
 (sums over that MP's observed votes only). The code reads like the formula:
 
 ```python
-# gibbs.py — Gaussian update for the ideal points
-r      = ystar + alpha[None, :]            # (n, m)
-prec_x = 1.0 + maskf @ (beta ** 2)         # (n,)  = 1 + sum_j beta_j^2   (prior + data)
-rhs_x  = (maskf * r) @ beta                # (n,)  = sum_j beta_j r_ij
-mean_x = rhs_x / prec_x
-sd_x   = 1.0 / np.sqrt(prec_x)
-x      = mean_x + sd_x * rng.standard_normal(n)
-x[anchor_idx] = _trunc_pos(mean_x[anchor_idx], sd_x[anchor_idx], rng)   # keep anchor > 0
+# gibbs.py — Gaussian full conditional for the ideal points x_i
+def update_ideal_points(ystar, beta, alpha, maskf, anchor_idx, rng):
+    r = ystar + alpha[None, :]                 # (n, m)
+    prec_x = 1.0 + maskf @ (beta ** 2)         # (n,)  = 1 + sum_j beta_j^2  (prior + data)
+    rhs_x = (maskf * r) @ beta                 # (n,)  = sum_j beta_j r_ij
+    mean_x = rhs_x / prec_x
+    sd_x = 1.0 / np.sqrt(prec_x)
+    x = mean_x + sd_x * rng.standard_normal(prec_x.shape[0])
+    x[anchor_idx] = _trunc_pos(mean_x[anchor_idx], sd_x[anchor_idx], rng)   # keep anchor > 0
+    return x
 ```
 
 That last line is where the anchor from §5 earns its keep.
@@ -375,23 +372,27 @@ Inverting a $2\times2$ in closed form and sampling via its Cholesky factor keeps
 vectorized across all $m$ votes at once:
 
 ```python
-# gibbs.py — bivariate Gaussian update for (beta_j, alpha_j), all votes at once
-Sxx = (x ** 2) @ maskf            # sum_i x_i^2   (observed)
-Sx  = x @ maskf                   # sum_i x_i
-Sn  = maskf.sum(axis=0)           # observed count per vote
-Sxy = x @ (maskf * ystar)         # sum_i x_i y*_ij
-Sy  = (maskf * ystar).sum(axis=0) # sum_i y*_ij
+# gibbs.py — bivariate Gaussian full conditional for (beta_j, alpha_j), all votes at once
+def update_vote_params(x, ystar, maskf, pb, pa, rng):
+    Sxx = (x ** 2) @ maskf            # sum_i x_i^2   (observed)
+    Sx = x @ maskf                    # sum_i x_i
+    Sn = maskf.sum(axis=0)            # observed count per vote
+    Sxy = x @ (maskf * ystar)         # sum_i x_i y*_ij
+    Sy = (maskf * ystar).sum(axis=0)  # sum_i y*_ij
 
-a11, a12, a22 = Sxx + pb, -Sx, Sn + pa            # precision A
-det = a11 * a22 - a12 * a12
-c11, c12, c22 = a22 / det, -a12 / det, a11 / det  # covariance A^{-1}
-mean_b = c11 * Sxy + c12 * (-Sy)
-mean_a = c12 * Sxy + c22 * (-Sy)
-L11 = np.sqrt(c11); L21 = c12 / L11               # 2x2 Cholesky of covariance
-L22 = np.sqrt(np.maximum(c22 - L21 ** 2, 1e-12))
-z1, z2 = rng.standard_normal(m), rng.standard_normal(m)
-beta  = mean_b + L11 * z1
-alpha = mean_a + L21 * z1 + L22 * z2
+    a11, a12, a22 = Sxx + pb, -Sx, Sn + pa            # precision A = [[a11,a12],[a12,a22]]
+    det = a11 * a22 - a12 * a12
+    c11, c12, c22 = a22 / det, -a12 / det, a11 / det  # covariance A^{-1}
+    mean_b = c11 * Sxy + c12 * (-Sy)
+    mean_a = c12 * Sxy + c22 * (-Sy)
+    L11 = np.sqrt(c11)                                # 2x2 Cholesky of covariance
+    L21 = c12 / L11
+    L22 = np.sqrt(np.maximum(c22 - L21 ** 2, 1e-12))
+    m = Sn.shape[0]
+    z1, z2 = rng.standard_normal(m), rng.standard_normal(m)
+    beta = mean_b + L11 * z1
+    alpha = mean_a + L21 * z1 + L22 * z2
+    return beta, alpha
 ```
 
 `pb` and `pa` are set once from $\sigma_\beta=2$, $\sigma_\alpha=2.5$:
@@ -412,31 +413,37 @@ coordinates change (Liu–Wu parameter expansion):
 
 ```python
 # gibbs.py — standardize x each sweep; absorb shift/scale into (beta, alpha)
-if standardize:
-    b = x.mean();  x = x - b;  alpha = alpha - beta * b   # center: eta unchanged
-    s = x.std();   x = x / s;  beta  = beta * s           # scale:  eta unchanged
-    if x[anchor_idx] < 0:                                 # guard the anchor's sign
+def standardize_scale(x, beta, alpha, anchor_idx):
+    b = x.mean()
+    x = x - b
+    alpha = alpha - beta * b          # center: preserves eta
+    s = x.std()
+    x = x / s
+    beta = beta * s                   # scale: preserves eta (alpha unchanged)
+    if x[anchor_idx] < 0:             # keep the anchor strictly positive
         x, beta = -x, -beta
+    return x, beta, alpha
 ```
 
-A cheap line that buys a lot of mixing.
+A cheap step that buys a lot of mixing.
 
 ### 6.6 One sweep, then thousands
 
-Stack the four blocks and you have the entire engine. This is the real loop in
-`gibbs.py` — the four blocks above run in sequence, then we keep the post-warmup
-draws:
+Stack the four functions and you have the entire engine. This is the real loop in
+`gibbs.py` — one sweep calls the four blocks in sequence, then keeps the
+post-warmup draws:
 
 ```python
-# gibbs.py — the whole sampler is this loop (the four blocks are §6.2–6.5)
+# gibbs.py — the whole sampler is this loop (the four functions are §6.2–6.5)
 for it in range(num_warmup + num_samples * thin):
-    eta   = x[:, None] * beta[None, :] - alpha[None, :]
-    ystar = _truncated_normal(eta, Y, rng)        # 1) latent utilities  (§6.2)
-    # 2) ideal points x          (§6.3) ...
-    # 3) vote params beta, alpha (§6.4) ...
-    # 4) standardize             (§6.5) ...
+    eta = x[:, None] * beta[None, :] - alpha[None, :]
+    ystar = _truncated_normal(eta, Y, rng)                               # 1) latent utilities
+    x = update_ideal_points(ystar, beta, alpha, maskf, anchor_idx, rng)  # 2) ideal points
+    beta, alpha = update_vote_params(x, ystar, maskf, pb, pa, rng)       # 3) vote params
+    if standardize:                                                      # 4) parameter expansion
+        x, beta, alpha = standardize_scale(x, beta, alpha, anchor_idx)
     if it >= num_warmup and (it - num_warmup) % thin == 0:
-        draws_x[(it - num_warmup) // thin] = x    # keep this draw
+        draws_x[(it - num_warmup) // thin] = x                           # keep this draw
 ```
 
 No accept/reject. No step-size tuning. No gradients. Every line is a closed-form
@@ -461,7 +468,38 @@ between-vs-within-chain variance ratio (want $< 1.01$).
 
 ---
 
-## 7. Run it yourself
+## 7. Results — one dimension
+
+Final run: 4 chains × 10,000 draws on 499 MPs × 2,570 contested votes.
+Convergence: $\hat R_{\max}=1.065$, mean ESS $\approx 608$.
+
+The recovered axis cleanly separates the chamber. Mean position by club:
+
+| Club | mean $x$ |
+|---|---|
+| KO | −0.99 |
+| Lewica | −0.80 |
+| Konfederacja | +0.41 |
+| PiS | +1.14 |
+
+Face validity, with **no labels given to the model**: at one end of the axis is
+Joanna Scheuring-Wielgus (Lewica, −1.12); at the other, PiS MPs Artur Soboń (+1.39)
+and Jacek Ozdoba (+1.32). The distribution is strikingly **bimodal** — two blocs with
+an almost empty centre, the signature of iron party discipline.
+
+> **How to read the axis.** I deliberately do **not** label it "left–right".
+> Roll-call votes certainly carry ideological signal — but turning that signal into
+> an ideological verdict is a judgment I choose not to make. This project supplies
+> the **data**, recovered as a **main axis of division**, and leaves the
+> interpretation to you. In this term that axis most plausibly tracks the
+> **government–opposition** split — a term-specific mapping.
+
+![Ideal points, colored by club](figures/ideal_points.png)
+![Distribution by club](figures/club_distributions.png)
+
+---
+
+## 8. Run it yourself
 
 Now the payoff. Clone the repo and install the handful of dependencies:
 
@@ -479,44 +517,9 @@ write a per-MP table:
 python run.py --term term10        # X kadencja (since 2023); try term9, term8, …
 ```
 
-Under the hood `run.py` ties §4–§6 together and produces the deliverable:
-
-```python
-# run.py — convergence, then the per-MP estimate table
-idata = az.convert_to_datatree({"x": out["x"]})
-rhat  = az.rhat(idata)["x"].values         # want < 1.01
-est = pd.DataFrame({
-    "mp_id": mp_ids, "club": clubs,
-    "x_mean": x_flat.mean(0),
-    "x_lo90": np.percentile(x_flat, 5, axis=0),
-    "x_hi90": np.percentile(x_flat, 95, axis=0),
-    "rhat":  rhat,
-}).sort_values("x_mean")
-```
-
-On the 10th term (4 chains × 10,000 draws, $\hat R_{\max}=1.065$) the club averages
-come out cleanly separated — **with no labels given to the model**:
-
-| Club | mean $x$ |
-|---|---|
-| KO | −0.99 |
-| Lewica | −0.80 |
-| Konfederacja | +0.41 |
-| PiS | +1.14 |
-
-The chamber is strikingly **bimodal** — two blocs, an almost empty centre: the
-signature of tight party discipline.
-
-> **How to read the axis.** I deliberately do **not** label it "left–right".
-> Roll-call votes certainly carry ideological signal — but turning that signal into
-> an ideological verdict is a judgment I choose not to make. This project supplies
-> the **data**, recovered as a **main axis of division**, and leaves the
-> interpretation to you. In this term that axis most plausibly tracks the
-> **government–opposition** split — a term-specific mapping.
-
 ---
 
-## 8. Now make it yours
+## 9. Now make it yours
 
 You have the repo, you've run it, and you've seen every line that matters. Things to
 poke at:
@@ -538,7 +541,7 @@ a black box — and that was the whole point.
 ---
 
 *Repo: [`sejm-ideal-points-model-demo`](https://github.com/psephos-lab/sejm-ideal-points-model-demo)
-· Live map: [psephos-lab.github.io/sejm-ideal-points-site](https://psephos-lab.github.io/sejm-ideal-points-site/)
+· Live map: [mapasejmu.org](https://mapasejmu.org)
 · Data: [api.sejm.gov.pl](https://api.sejm.gov.pl)*
 *Disclaimer: an "ideal point" is a position in vote space, not a judgment of a
 politician. Uncertainty grows for MPs who vote rarely.*

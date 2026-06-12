@@ -242,7 +242,7 @@ an almost empty centre, the signature of iron party discipline.
 > the **data**, recovered as a **main axis of division**, and leaves the
 > interpretation to the reader. In this term that axis most plausibly corresponds to
 > the **government–opposition** split (one bloc is the governing coalition, the other
-> the opposition) — a term-specific mapping, not an intrinsic ideological scale.
+> the opposition) — a term-specific mapping.
 
 ![Ideal points, colored by club](figures/ideal_points.png)
 ![Distribution by club](figures/club_distributions.png)
