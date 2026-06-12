@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .claude/
+CLAUDE.md
 .DS_Store
 
 # the interactive site lives in its own repo (GitHub Pages)

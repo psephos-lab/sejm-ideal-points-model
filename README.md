@@ -13,9 +13,10 @@ Each deputy gets a latent position `x_i`; each vote gets a discrimination `β_j`
 threshold `α_j`, with `P(yea) = Φ(β_j·x_i − α_j)` (two-parameter IRT / probit). The
 posterior is sampled with a **Gibbs sampler (Albert–Chib data augmentation)**.
 
-The recovered axis is deliberately **not** labelled "left–right" — that would impute
-party ideology the votes alone don't establish. It most plausibly reflects the
-**government–opposition** split. The write-up covers the rest of the story: why NUTS
+The recovered axis is deliberately **not** labelled "left–right": roll-call votes do
+carry ideological signal, but rendering an ideological verdict is a judgment this
+project leaves to the reader — it supplies the **main axis of division** as data. It
+most plausibly reflects the **government–opposition** split. The write-up covers the rest of the story: why NUTS
 collapses on this geometry and Gibbs wins, a parameter-expansion fix, a negative result
 on marginal data augmentation, a data-pipeline bug worth remembering, and a
 dimensionality analysis (the chamber is ~1-dimensional).
